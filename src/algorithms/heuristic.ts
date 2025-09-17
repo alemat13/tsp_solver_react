@@ -1,18 +1,9 @@
 import { SolveRequest, SolveResult } from '../types';
 import { computeTotals, deriveResult } from './common';
 
-const selectStartIndex = (distances: number[][], fixedStart?: number, fixedEnd?: number): number => {
-  if (typeof fixedStart === 'number') {
-    return fixedStart;
-  }
-
-  let bestIndex = 0;
-  let bestScore = Number.POSITIVE_INFINITY;
-
+const computeAverageDistances = (distances: number[][]): number[] => {
+  const averages: number[] = new Array(distances.length).fill(0);
   for (let i = 0; i < distances.length; i += 1) {
-    if (typeof fixedEnd === 'number' && i === fixedEnd) {
-      continue;
-    }
     let sum = 0;
     for (let j = 0; j < distances.length; j += 1) {
       if (i === j) {
@@ -20,14 +11,49 @@ const selectStartIndex = (distances: number[][], fixedStart?: number, fixedEnd?:
       }
       sum += distances[i][j];
     }
-    const average = sum / Math.max(1, distances.length - 1);
-    if (average < bestScore) {
-      bestScore = average;
-      bestIndex = i;
-    }
+    averages[i] = sum / Math.max(1, distances.length - 1);
+  }
+  return averages;
+};
+
+const generateStartCandidates = (
+  distances: number[][],
+  fixedStart: number | undefined,
+  fixedEnd: number | undefined
+): number[] => {
+  if (typeof fixedStart === 'number') {
+    return [fixedStart];
   }
 
-  return bestIndex;
+  const size = distances.length;
+  const indices = Array.from({ length: size }, (_, index) => index).filter((index) => index !== fixedEnd);
+  if (indices.length === 0) {
+    return fixedEnd !== undefined ? [fixedEnd] : [0];
+  }
+
+  const averages = computeAverageDistances(distances);
+  const sortedByAverage = indices.slice().sort((a, b) => averages[a] - averages[b]);
+
+  const candidateSet: number[] = [];
+  const addCandidate = (index?: number) => {
+    if (typeof index !== 'number') {
+      return;
+    }
+    if (candidateSet.includes(index)) {
+      return;
+    }
+    candidateSet.push(index);
+  };
+
+  addCandidate(sortedByAverage[0]);
+  addCandidate(sortedByAverage[sortedByAverage.length - 1]);
+  addCandidate(sortedByAverage[Math.floor(sortedByAverage.length / 2)]);
+
+  for (let i = 0; i < sortedByAverage.length && candidateSet.length < 5; i += 1) {
+    addCandidate(sortedByAverage[i]);
+  }
+
+  return candidateSet;
 };
 
 const buildNearestNeighbourRoute = (size: number, distances: number[][], startIndex: number, fixedEnd?: number): number[] => {
@@ -146,17 +172,31 @@ export const solveHeuristic = (request: SolveRequest): SolveResult => {
     return deriveResult(points, loopRoute, totals, 'heuristic', warnings);
   }
 
-  const startIndex = selectStartIndex(matrix.distances, fixedStart, fixedEnd);
-  const initialRoute = buildNearestNeighbourRoute(size, matrix.distances, startIndex, fixedEnd);
-
   const lockedStart = typeof fixedStart === 'number';
   const lockedEnd = typeof fixedEnd === 'number';
 
-  const routeForOptimisation = initialRoute.slice();
-  const improvedRoute = optimiseWithTwoOpt(routeForOptimisation, matrix.distances, 20, lockedStart, lockedEnd);
+  const candidateStarts = generateStartCandidates(matrix.distances, fixedStart, fixedEnd);
 
-  const totals = computeTotals(improvedRoute, matrix.distances, matrix.durations);
-  const warnings: string[] = [];
+  let bestRoute: number[] | undefined;
+  let bestScore = Number.POSITIVE_INFINITY;
+  let bestTotals = { totalDistance: Number.POSITIVE_INFINITY, totalDuration: undefined as number | undefined };
 
-  return deriveResult(points, improvedRoute, totals, 'heuristic', warnings);
+  candidateStarts.forEach((startIndex) => {
+    const baseRoute = buildNearestNeighbourRoute(size, matrix.distances, startIndex, fixedEnd);
+    const refinedRoute = optimiseWithTwoOpt(baseRoute.slice(), matrix.distances, 24, lockedStart, lockedEnd);
+    const totals = computeTotals(refinedRoute, matrix.distances, matrix.durations);
+
+    if (totals.totalDistance < bestScore) {
+      bestScore = totals.totalDistance;
+      bestRoute = refinedRoute;
+      bestTotals = totals;
+    }
+  });
+
+  const route = bestRoute || buildNearestNeighbourRoute(size, matrix.distances, candidateStarts[0], fixedEnd);
+  const totals = bestRoute ? bestTotals : computeTotals(route, matrix.distances, matrix.durations);
+
+  const warnings: string[] = candidateStarts.length > 1 ? ['Heuristic evaluated multiple starting tours to refine the route.'] : [];
+
+  return deriveResult(points, route, totals, 'heuristic', warnings);
 };
