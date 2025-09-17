@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip } from 'react-leaflet';
+import { useEffect, useMemo, useRef } from 'react';
+import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { CoordinatePoint } from '../types';
 import 'leaflet/dist/leaflet.css';
@@ -26,6 +26,36 @@ export interface MapViewProps {
   polyline?: [number, number][];
 }
 
+const BoundsUpdater = ({ coordinates }: { coordinates: [number, number][] }) => {
+  const map = useMap();
+  const lastKeyRef = useRef<string | undefined>();
+
+  useEffect(() => {
+    if (!coordinates.length) {
+      return;
+    }
+
+    const key = coordinates.map((coord) => coord[0].toFixed(6) + ',' + coord[1].toFixed(6)).join('|');
+    if (lastKeyRef.current === key) {
+      return;
+    }
+
+    lastKeyRef.current = key;
+
+    if (coordinates.length === 1) {
+      const [lat, lon] = coordinates[0];
+      map.setView([lat, lon], Math.max(map.getZoom(), 13));
+      return;
+    }
+
+    const latLngs = coordinates.map(([lat, lon]) => new L.LatLng(lat, lon));
+    const bounds = L.latLngBounds(latLngs);
+    map.fitBounds(bounds, { padding: [32, 32] });
+  }, [map, coordinates]);
+
+  return null;
+};
+
 export const MapView = ({ points, orderedIds, polyline }: MapViewProps) => {
   const orderedPoints = useMemo(() => {
     if (!orderedIds.length) {
@@ -38,18 +68,45 @@ export const MapView = ({ points, orderedIds, polyline }: MapViewProps) => {
       .filter((point): point is CoordinatePoint => Boolean(point));
   }, [points, orderedIds]);
 
-  const positions = orderedPoints.map((point) => [point.latitude, point.longitude] as [number, number]);
+  const positions = useMemo(
+    () => orderedPoints.map((point) => [point.latitude, point.longitude] as [number, number]),
+    [orderedPoints]
+  );
 
-  const polylinePositions = polyline && polyline.length > 1 ? polyline : positions;
+  const sourcePositions = useMemo(
+    () => points.map((point) => [point.latitude, point.longitude] as [number, number]),
+    [points]
+  );
 
-  const boundsSource = polylinePositions.length > 1
-    ? polylinePositions.map((position) => new L.LatLng(position[0], position[1]))
-    : points.map((point) => new L.LatLng(point.latitude, point.longitude));
+  const polylinePositions = useMemo(() => {
+    if (polyline && polyline.length > 1) {
+      return polyline;
+    }
+    if (positions.length > 1) {
+      return positions;
+    }
+    return sourcePositions;
+  }, [polyline, positions, sourcePositions]);
 
-  const bounds = boundsSource.length > 0 ? L.latLngBounds(boundsSource) : undefined;
+  const boundsCoordinates = useMemo(() => {
+    if (polylinePositions.length > 1) {
+      return polylinePositions;
+    }
+    if (sourcePositions.length > 0) {
+      return sourcePositions;
+    }
+    return [] as [number, number][];
+  }, [polylinePositions, sourcePositions]);
+
+  const bounds = useMemo(() => {
+    if (!boundsCoordinates.length) {
+      return undefined;
+    }
+    const latLngs = boundsCoordinates.map(([lat, lon]) => new L.LatLng(lat, lon));
+    return L.latLngBounds(latLngs);
+  }, [boundsCoordinates]);
+
   const center = bounds ? bounds.getCenter() : L.latLng(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
-
-  const containerProps = bounds ? { bounds } : {};
 
   return (
     <div className="map-view">
@@ -58,8 +115,8 @@ export const MapView = ({ points, orderedIds, polyline }: MapViewProps) => {
         zoom={DEFAULT_ZOOM}
         style={{ height: '100%', width: '100%' }}
         scrollWheelZoom
-        {...containerProps}
       >
+        <BoundsUpdater coordinates={boundsCoordinates} />
         <TileLayer
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
