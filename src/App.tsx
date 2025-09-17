@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CoordinateInput } from './components/CoordinateInput';
 import { OptionsForm } from './components/OptionsForm';
 import { SolutionPanel } from './components/SolutionPanel';
@@ -42,15 +42,19 @@ export const App = () => {
   const [apiKey, setApiKey] = useState<string>(loadStorageState(storedState).apiKey);
   const [travelMode, setTravelMode] = useState<TravelMode>(loadStorageState(storedState).travelMode);
 
-  const [points, setPoints] = useState<CoordinatePoint[]>([]);
   const [selectedStartId, setSelectedStartId] = useState<string | undefined>(undefined);
   const [selectedEndId, setSelectedEndId] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [solution, setSolution] = useState<SolveResult | undefined>(undefined);
   const [algorithmNotes, setAlgorithmNotes] = useState<string[]>([]);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  const [solverWarnings, setSolverWarnings] = useState<string[]>([]);
   const [matrixProvider, setMatrixProvider] = useState<string | undefined>(undefined);
+
+  const parseResult = useMemo(() => parseCoordinateLines(rawInput), [rawInput]);
+  const parsedPoints = parseResult.points;
+  const parseWarnings = parseResult.warnings;
+  const parseErrors = parseResult.errors;
 
   const updateStorage = useCallback(
     (next: Partial<StorageState>) => {
@@ -81,19 +85,19 @@ export const App = () => {
   };
 
   const resolvedStartId = useMemo(() => {
-    return points.some((point) => point.id === selectedStartId) ? selectedStartId : undefined;
-  }, [points, selectedStartId]);
+    return parsedPoints.some((point) => point.id === selectedStartId) ? selectedStartId : undefined;
+  }, [parsedPoints, selectedStartId]);
 
   const resolvedEndId = useMemo(() => {
-    return points.some((point) => point.id === selectedEndId) ? selectedEndId : undefined;
-  }, [points, selectedEndId]);
+    return parsedPoints.some((point) => point.id === selectedEndId) ? selectedEndId : undefined;
+  }, [parsedPoints, selectedEndId]);
 
   const runSolver = useCallback(
-    async (pointCollection: CoordinatePoint[], parseWarnings: string[]) => {
+    async (pointCollection: CoordinatePoint[]) => {
       setIsLoading(true);
       setError(undefined);
       setSolution(undefined);
-      setWarnings([]);
+      setSolverWarnings([]);
       setMatrixProvider(undefined);
       setAlgorithmNotes([]);
 
@@ -112,15 +116,14 @@ export const App = () => {
         setSolution(adaptiveResult);
         setMatrixProvider(matrixResult.data.provider === 'openrouteservice' ? 'OpenRouteService' : 'Haversine fallback');
 
-        const aggregatedWarnings: string[] = [];
-        aggregatedWarnings.push.apply(aggregatedWarnings, parseWarnings);
-        aggregatedWarnings.push.apply(aggregatedWarnings, matrixResult.warnings);
-        aggregatedWarnings.push.apply(aggregatedWarnings, adaptiveResult.warnings);
+        const aggregatedSolverWarnings: string[] = [];
+        aggregatedSolverWarnings.push.apply(aggregatedSolverWarnings, matrixResult.warnings);
+        aggregatedSolverWarnings.push.apply(aggregatedSolverWarnings, adaptiveResult.warnings);
         if (matrixResult.error) {
-          aggregatedWarnings.push(matrixResult.error);
+          aggregatedSolverWarnings.push(matrixResult.error);
         }
 
-        setWarnings(aggregatedWarnings);
+        setSolverWarnings(aggregatedSolverWarnings);
         setAlgorithmNotes(adaptiveResult.notes);
       } catch (solverError) {
         const message = solverError instanceof Error ? solverError.message : 'Unexpected error while solving the itinerary.';
@@ -132,29 +135,42 @@ export const App = () => {
     [apiKey, travelMode, resolvedStartId, resolvedEndId]
   );
 
-  const handleParseAndSolve = async () => {
-    const parseResult = parseCoordinateLines(rawInput);
-
-    if (parseResult.errors.length > 0) {
-      setError(parseResult.errors.join('\n'));
-      setPoints([]);
-      setSolution(undefined);
-      setWarnings(parseResult.warnings.concat(parseResult.errors));
+  const handleSolve = async () => {
+    if (parseErrors.length > 0) {
       return;
     }
 
-    if (parseResult.points.length < 2) {
-      const message = 'Provide at least two valid coordinates to compute an itinerary.';
-      setError(message);
-      setPoints(parseResult.points);
-      setSolution(undefined);
-      setWarnings(parseResult.warnings.concat([message]));
+    if (parsedPoints.length < 2) {
       return;
     }
 
-    setPoints(parseResult.points);
-    await runSolver(parseResult.points, parseResult.warnings);
+    await runSolver(parsedPoints);
   };
+
+  useEffect(() => {
+    setSolution(undefined);
+    setMatrixProvider(undefined);
+    setAlgorithmNotes([]);
+    setSolverWarnings([]);
+    setError(undefined);
+  }, [rawInput]);
+
+  useEffect(() => {
+    if (selectedStartId && !parsedPoints.some((point) => point.id === selectedStartId)) {
+      setSelectedStartId(undefined);
+    }
+    if (selectedEndId && !parsedPoints.some((point) => point.id === selectedEndId)) {
+      setSelectedEndId(undefined);
+    }
+  }, [parsedPoints, selectedStartId, selectedEndId]);
+
+  const combinedWarnings = useMemo(() => {
+    return [...parseWarnings, ...solverWarnings];
+  }, [parseWarnings, solverWarnings]);
+
+  const effectiveError = error || (parseErrors.length > 0 ? parseErrors.join('\n') : undefined);
+
+  const canSolve = !isLoading && parseErrors.length === 0 && parsedPoints.length >= 2;
 
   return (
     <div className="app">
@@ -166,13 +182,13 @@ export const App = () => {
       </header>
       <main className="layout">
         <div className="layout__column layout__column--inputs">
-          <CoordinateInput value={rawInput} onChange={handleRawInputChange} onParse={handleParseAndSolve} disabled={isLoading} />
+          <CoordinateInput value={rawInput} onChange={handleRawInputChange} onSolve={handleSolve} disabled={!canSolve} />
           <OptionsForm
             apiKey={apiKey}
             onApiKeyChange={handleApiKeyChange}
             travelMode={travelMode}
             onTravelModeChange={handleTravelModeChange}
-            points={points}
+            points={parsedPoints}
             startId={resolvedStartId}
             endId={resolvedEndId}
             onStartChange={setSelectedStartId}
@@ -182,16 +198,16 @@ export const App = () => {
         <div className="layout__column layout__column--results">
           <SolutionPanel
             isLoading={isLoading}
-            error={error}
+            error={effectiveError}
             result={solution}
-            warnings={warnings}
+            warnings={combinedWarnings}
             algorithmNotes={algorithmNotes}
             matrixProvider={matrixProvider}
           />
           <div className="panel map-panel">
             <h2 className="panel__title">Map preview</h2>
             <div className="map-container">
-              <MapView points={points} orderedIds={solution ? solution.orderedIds : []} />
+              <MapView points={parsedPoints} orderedIds={solution ? solution.orderedIds : []} />
             </div>
           </div>
         </div>

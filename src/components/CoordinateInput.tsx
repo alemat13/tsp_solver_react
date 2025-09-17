@@ -3,11 +3,11 @@ import { ChangeEvent } from 'react';
 export interface CoordinateInputProps {
   value: string;
   onChange: (value: string) => void;
-  onParse: () => void;
+  onSolve: () => void;
   disabled?: boolean;
 }
 
-export const CoordinateInput = ({ value, onChange, onParse, disabled }: CoordinateInputProps) => {
+export const CoordinateInput = ({ value, onChange, onSolve, disabled }: CoordinateInputProps) => {
   const handleChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     onChange(event.target.value);
   };
@@ -21,8 +21,8 @@ export const CoordinateInput = ({ value, onChange, onParse, disabled }: Coordina
             Paste one entry per line using "latitude, longitude[, label]" or "label, latitude, longitude". Lines starting with # are ignored.
           </p>
         </div>
-        <button type="button" className="primary" onClick={onParse} disabled={disabled}>
-          Parse &amp; Solve
+        <button type="button" className="primary" onClick={onSolve} disabled={disabled}>
+          Solve itinerary
         </button>
       </header>
       <textarea
