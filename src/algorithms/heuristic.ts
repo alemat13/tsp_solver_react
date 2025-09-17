@@ -1,5 +1,5 @@
 import { SolveRequest, SolveResult } from '../types';
-import { computeTotals, deriveResult } from './common';
+import { Totals, computeTotals, deriveResult } from './common';
 
 const computeAverageDistances = (distances: number[][]): number[] => {
   const averages: number[] = new Array(distances.length).fill(0);
@@ -179,7 +179,7 @@ export const solveHeuristic = (request: SolveRequest): SolveResult => {
 
   let bestRoute: number[] | undefined;
   let bestScore = Number.POSITIVE_INFINITY;
-  let bestTotals = { totalDistance: Number.POSITIVE_INFINITY, totalDuration: undefined as number | undefined };
+  let bestTotals: Totals = { totalDistance: Number.POSITIVE_INFINITY, totalDuration: undefined };
 
   candidateStarts.forEach((startIndex) => {
     const baseRoute = buildNearestNeighbourRoute(size, matrix.distances, startIndex, fixedEnd);
