@@ -23,17 +23,10 @@ L.Marker.prototype.options.icon = markerIcon;
 export interface MapViewProps {
   points: CoordinatePoint[];
   orderedIds: string[];
+  polyline?: [number, number][];
 }
 
-const computeBounds = (points: CoordinatePoint[]): L.LatLngBounds | undefined => {
-  if (!points.length) {
-    return undefined;
-  }
-  const latLngs = points.map((point) => new L.LatLng(point.latitude, point.longitude));
-  return L.latLngBounds(latLngs);
-};
-
-export const MapView = ({ points, orderedIds }: MapViewProps) => {
+export const MapView = ({ points, orderedIds, polyline }: MapViewProps) => {
   const orderedPoints = useMemo(() => {
     if (!orderedIds.length) {
       return points;
@@ -46,7 +39,14 @@ export const MapView = ({ points, orderedIds }: MapViewProps) => {
   }, [points, orderedIds]);
 
   const positions = orderedPoints.map((point) => [point.latitude, point.longitude] as [number, number]);
-  const bounds = computeBounds(points);
+
+  const polylinePositions = polyline && polyline.length > 1 ? polyline : positions;
+
+  const boundsSource = polylinePositions.length > 1
+    ? polylinePositions.map((position) => new L.LatLng(position[0], position[1]))
+    : points.map((point) => new L.LatLng(point.latitude, point.longitude));
+
+  const bounds = boundsSource.length > 0 ? L.latLngBounds(boundsSource) : undefined;
   const center = bounds ? bounds.getCenter() : L.latLng(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
 
   const containerProps = bounds ? { bounds } : {};
@@ -64,8 +64,8 @@ export const MapView = ({ points, orderedIds }: MapViewProps) => {
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {positions.length > 1 && (
-          <Polyline positions={positions} color="#2563eb" weight={4} opacity={0.7} />
+        {polylinePositions.length > 1 && (
+          <Polyline positions={polylinePositions} color="#2563eb" weight={4} opacity={0.7} />
         )}
         {positions.map((position, index) => {
           const point = orderedPoints[index];

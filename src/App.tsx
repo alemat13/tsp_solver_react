@@ -5,7 +5,7 @@ import { SolutionPanel } from './components/SolutionPanel';
 import { MapView } from './components/MapView';
 import { parseCoordinateLines } from './utils/coordinateParser';
 import { useLocalStorage } from './hooks/useLocalStorage';
-import { fetchMatrix } from './services/openRouteService';
+import { fetchMatrix, fetchRouteGeometry } from './services/openRouteService';
 import { solveAdaptiveTsp } from './algorithms/adaptive';
 import { CoordinatePoint, SolveResult, TravelMode } from './types';
 import './App.css';
@@ -50,6 +50,8 @@ export const App = () => {
   const [algorithmNotes, setAlgorithmNotes] = useState<string[]>([]);
   const [solverWarnings, setSolverWarnings] = useState<string[]>([]);
   const [matrixProvider, setMatrixProvider] = useState<string | undefined>(undefined);
+  const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
+  const [routeWarnings, setRouteWarnings] = useState<string[]>([]);
 
   const parseResult = useMemo(() => parseCoordinateLines(rawInput), [rawInput]);
   const parsedPoints = parseResult.points;
@@ -100,6 +102,8 @@ export const App = () => {
       setSolverWarnings([]);
       setMatrixProvider(undefined);
       setAlgorithmNotes([]);
+      setRouteCoordinates([]);
+      setRouteWarnings([]);
 
       try {
         const matrixResult = await fetchMatrix({ apiKey, profile: travelMode, points: pointCollection });
@@ -125,6 +129,33 @@ export const App = () => {
 
         setSolverWarnings(aggregatedSolverWarnings);
         setAlgorithmNotes(adaptiveResult.notes);
+
+        let geometryWarnings: string[] = [];
+        let geometryCoordinates: [number, number][] = adaptiveResult.orderedPoints.map((point) => [point.latitude, point.longitude]);
+
+        if (matrixResult.data.provider === 'openrouteservice' && apiKey) {
+          try {
+            const geometryResult = await fetchRouteGeometry({
+              apiKey,
+              profile: travelMode,
+              points: adaptiveResult.orderedPoints,
+            });
+            geometryCoordinates = geometryResult.coordinates;
+            geometryWarnings = geometryResult.warnings.slice();
+            if (geometryResult.error) {
+              geometryWarnings.push(geometryResult.error);
+            }
+          } catch (routeError) {
+            const message = routeError instanceof Error ? routeError.message : 'Failed to fetch detailed route geometry.';
+            geometryWarnings = ['Failed to fetch detailed route geometry.'];
+            if (message !== geometryWarnings[0]) {
+              geometryWarnings.push(message);
+            }
+          }
+        }
+
+        setRouteCoordinates(geometryCoordinates);
+        setRouteWarnings(geometryWarnings);
       } catch (solverError) {
         const message = solverError instanceof Error ? solverError.message : 'Unexpected error while solving the itinerary.';
         setError(message);
@@ -152,6 +183,8 @@ export const App = () => {
     setMatrixProvider(undefined);
     setAlgorithmNotes([]);
     setSolverWarnings([]);
+    setRouteCoordinates([]);
+    setRouteWarnings([]);
     setError(undefined);
   }, [rawInput]);
 
@@ -165,8 +198,8 @@ export const App = () => {
   }, [parsedPoints, selectedStartId, selectedEndId]);
 
   const combinedWarnings = useMemo(() => {
-    return [...parseWarnings, ...solverWarnings];
-  }, [parseWarnings, solverWarnings]);
+    return [...parseWarnings, ...solverWarnings, ...routeWarnings];
+  }, [parseWarnings, solverWarnings, routeWarnings]);
 
   const effectiveError = error || (parseErrors.length > 0 ? parseErrors.join('\n') : undefined);
 
@@ -207,7 +240,11 @@ export const App = () => {
           <div className="panel map-panel">
             <h2 className="panel__title">Map preview</h2>
             <div className="map-container">
-              <MapView points={parsedPoints} orderedIds={solution ? solution.orderedIds : []} />
+              <MapView
+                points={parsedPoints}
+                orderedIds={solution ? solution.orderedIds : []}
+                polyline={routeCoordinates}
+              />
             </div>
           </div>
         </div>
