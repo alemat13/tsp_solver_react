@@ -39,3 +39,5 @@ export interface SolveResult {
   strategy: 'brute-force' | 'heuristic';
   warnings: string[];
 }
+
+export type SolverMode = 'auto' | 'brute-force' | 'heuristic';

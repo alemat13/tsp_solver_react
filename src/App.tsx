@@ -7,19 +7,23 @@ import { parseCoordinateLines } from './utils/coordinateParser';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { fetchMatrix, fetchRouteGeometry } from './services/openRouteService';
 import { solveAdaptiveTsp } from './algorithms/adaptive';
-import { CoordinatePoint, SolveResult, TravelMode } from './types';
+import { solveBruteForce } from './algorithms/bruteForce';
+import { solveHeuristic } from './algorithms/heuristic';
+import { CoordinatePoint, SolveResult, SolverMode, TravelMode } from './types';
 import './App.css';
 
 interface StorageState {
   apiKey: string;
   rawInput: string;
   travelMode: TravelMode;
+  solverMode: SolverMode;
 }
 
 const initialStorageState: StorageState = {
   apiKey: '',
   rawInput: '',
   travelMode: 'driving-car',
+  solverMode: 'auto',
 };
 
 const STORAGE_KEY = 'tsp-solver-settings-v1';
@@ -32,6 +36,7 @@ const loadStorageState = (value: StorageState | undefined): StorageState => {
     apiKey: value.apiKey || '',
     rawInput: value.rawInput || '',
     travelMode: value.travelMode || 'driving-car',
+    solverMode: value.solverMode || 'auto',
   };
 };
 
@@ -41,6 +46,7 @@ export const App = () => {
   const [rawInput, setRawInput] = useState<string>(loadStorageState(storedState).rawInput);
   const [apiKey, setApiKey] = useState<string>(loadStorageState(storedState).apiKey);
   const [travelMode, setTravelMode] = useState<TravelMode>(loadStorageState(storedState).travelMode);
+  const [solverMode, setSolverMode] = useState<SolverMode>(loadStorageState(storedState).solverMode);
 
   const [selectedStartId, setSelectedStartId] = useState<string | undefined>(undefined);
   const [selectedEndId, setSelectedEndId] = useState<string | undefined>(undefined);
@@ -64,11 +70,12 @@ export const App = () => {
         apiKey,
         rawInput,
         travelMode,
+        solverMode,
         ...next,
       };
       setStoredState(merged);
     },
-    [apiKey, rawInput, travelMode, setStoredState]
+    [apiKey, rawInput, travelMode, solverMode, setStoredState]
   );
 
   const handleRawInputChange = (value: string) => {
@@ -84,6 +91,11 @@ export const App = () => {
   const handleTravelModeChange = (mode: TravelMode) => {
     setTravelMode(mode);
     updateStorage({ travelMode: mode });
+  };
+
+  const handleSolverModeChange = (mode: SolverMode) => {
+    setSolverMode(mode);
+    updateStorage({ solverMode: mode });
   };
 
   const resolvedStartId = useMemo(() => {
@@ -110,35 +122,61 @@ export const App = () => {
         const startId = pointCollection.some((point) => point.id === resolvedStartId) ? resolvedStartId : undefined;
         const endId = pointCollection.some((point) => point.id === resolvedEndId) ? resolvedEndId : undefined;
 
-        const adaptiveResult = solveAdaptiveTsp({
-          points: pointCollection,
-          matrix: matrixResult.data,
-          startId,
-          endId,
-        });
+        let selectedResult: SolveResult;
+        let notes: string[] = [];
 
-        setSolution(adaptiveResult);
+        const aggregatedSolverWarnings: string[] = matrixResult.warnings.slice();
+
+        if (solverMode === 'brute-force') {
+          selectedResult = solveBruteForce({
+            points: pointCollection,
+            matrix: matrixResult.data,
+            startId,
+            endId,
+          });
+          notes = ['Brute force strategy selected explicitly by the user.'];
+          if (pointCollection.length > 10) {
+            aggregatedSolverWarnings.push('Brute force search may take significant time for ' + pointCollection.length + ' points.');
+          }
+        } else if (solverMode === 'heuristic') {
+          selectedResult = solveHeuristic({
+            points: pointCollection,
+            matrix: matrixResult.data,
+            startId,
+            endId,
+          });
+          notes = ['Heuristic strategy selected explicitly by the user.'];
+        } else {
+          const adaptiveResult = solveAdaptiveTsp({
+            points: pointCollection,
+            matrix: matrixResult.data,
+            startId,
+            endId,
+          });
+          selectedResult = adaptiveResult;
+          notes = adaptiveResult.notes;
+        }
+
+        setSolution(selectedResult);
         setMatrixProvider(matrixResult.data.provider === 'openrouteservice' ? 'OpenRouteService' : 'Haversine fallback');
 
-        const aggregatedSolverWarnings: string[] = [];
-        aggregatedSolverWarnings.push.apply(aggregatedSolverWarnings, matrixResult.warnings);
-        aggregatedSolverWarnings.push.apply(aggregatedSolverWarnings, adaptiveResult.warnings);
+        aggregatedSolverWarnings.push.apply(aggregatedSolverWarnings, selectedResult.warnings);
         if (matrixResult.error) {
           aggregatedSolverWarnings.push(matrixResult.error);
         }
 
         setSolverWarnings(aggregatedSolverWarnings);
-        setAlgorithmNotes(adaptiveResult.notes);
+        setAlgorithmNotes(notes);
 
         let geometryWarnings: string[] = [];
-        let geometryCoordinates: [number, number][] = adaptiveResult.orderedPoints.map((point) => [point.latitude, point.longitude]);
+        let geometryCoordinates: [number, number][] = selectedResult.orderedPoints.map((point) => [point.latitude, point.longitude]);
 
         if (matrixResult.data.provider === 'openrouteservice' && apiKey) {
           try {
             const geometryResult = await fetchRouteGeometry({
               apiKey,
               profile: travelMode,
-              points: adaptiveResult.orderedPoints,
+              points: selectedResult.orderedPoints,
             });
             geometryCoordinates = geometryResult.coordinates;
             geometryWarnings = geometryResult.warnings.slice();
@@ -163,7 +201,7 @@ export const App = () => {
         setIsLoading(false);
       }
     },
-    [apiKey, travelMode, resolvedStartId, resolvedEndId]
+    [apiKey, travelMode, resolvedStartId, resolvedEndId, solverMode]
   );
 
   const handleSolve = async () => {
@@ -186,7 +224,7 @@ export const App = () => {
     setRouteCoordinates([]);
     setRouteWarnings([]);
     setError(undefined);
-  }, [rawInput]);
+  }, [rawInput, solverMode, travelMode]);
 
   useEffect(() => {
     if (selectedStartId && !parsedPoints.some((point) => point.id === selectedStartId)) {
@@ -221,6 +259,8 @@ export const App = () => {
             onApiKeyChange={handleApiKeyChange}
             travelMode={travelMode}
             onTravelModeChange={handleTravelModeChange}
+            solverMode={solverMode}
+            onSolverModeChange={handleSolverModeChange}
             points={parsedPoints}
             startId={resolvedStartId}
             endId={resolvedEndId}

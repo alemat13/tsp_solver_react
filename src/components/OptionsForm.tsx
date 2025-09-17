@@ -1,11 +1,13 @@
 import { ChangeEvent } from 'react';
-import { CoordinatePoint, TravelMode } from '../types';
+import { CoordinatePoint, SolverMode, TravelMode } from '../types';
 
 export interface OptionsFormProps {
   apiKey: string;
   onApiKeyChange: (value: string) => void;
   travelMode: TravelMode;
   onTravelModeChange: (mode: TravelMode) => void;
+  solverMode: SolverMode;
+  onSolverModeChange: (mode: SolverMode) => void;
   points: CoordinatePoint[];
   startId?: string;
   endId?: string;
@@ -27,6 +29,8 @@ export const OptionsForm = ({
   onApiKeyChange,
   travelMode,
   onTravelModeChange,
+  solverMode,
+  onSolverModeChange,
   points,
   startId,
   endId,
@@ -43,6 +47,10 @@ export const OptionsForm = ({
 
   const handleEndChange = (event: ChangeEvent<HTMLSelectElement>) => {
     onEndChange(event.target.value || undefined);
+  };
+
+  const handleSolverModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    onSolverModeChange(event.target.value as SolverMode);
   };
 
   return (
@@ -73,6 +81,19 @@ export const OptionsForm = ({
           </select>
           <p className="field__hint">
             {TRAVEL_MODE_OPTIONS.find((option) => option.value === travelMode)?.description || ''}
+          </p>
+        </label>
+      </div>
+      <div className="field-group">
+        <label className="field">
+          <span className="field__label">Solver strategy</span>
+          <select value={solverMode} onChange={handleSolverModeChange}>
+            <option value="auto">Automatic (adaptive)</option>
+            <option value="brute-force">Force brute-force</option>
+            <option value="heuristic">Force heuristic</option>
+          </select>
+          <p className="field__hint">
+            Choose how the itinerary is optimised. Automatic switches between brute force and heuristic based on the number of points.
           </p>
         </label>
       </div>
