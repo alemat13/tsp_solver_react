@@ -18,7 +18,7 @@ export const CoordinateInput = ({ value, onChange, onParse, disabled }: Coordina
         <div>
           <h2 className="panel__title">Locations</h2>
           <p className="panel__subtitle">
-            Paste one entry per line using "label, latitude, longitude". Lines starting with # are ignored.
+            Paste one entry per line using "latitude, longitude[, label]" or "label, latitude, longitude". Lines starting with # are ignored.
           </p>
         </div>
         <button type="button" className="primary" onClick={onParse} disabled={disabled}>
@@ -29,7 +29,7 @@ export const CoordinateInput = ({ value, onChange, onParse, disabled }: Coordina
         className="coordinate-input"
         value={value}
         onChange={handleChange}
-        placeholder="Eiffel Tower, 48.85837, 2.29448"
+        placeholder="48.85837, 2.29448, Eiffel Tower"
         rows={12}
       />
     </section>

@@ -40,37 +40,81 @@ export const parseCoordinateLines = (input: string): ParseResult => {
       .map((part) => part.trim())
       .filter((part) => part.length > 0);
 
+    const whitespaceParts = line
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+
     let label: string | undefined;
     let latToken: string | undefined;
     let lonToken: string | undefined;
 
-    if (parts.length >= 3) {
-      label = parts[0];
-      latToken = parts[1];
-      lonToken = parts[2];
-    } else if (parts.length === 2) {
-      latToken = parts[0];
-      lonToken = parts[1];
-      label = 'Point ' + autoIndex;
-    } else {
-      const whitespaceParts = line
-        .split(/\s+/)
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0);
+    const tokenSets: string[][] = [];
+    if (parts.length > 0) {
+      tokenSets.push(parts);
+    }
+    if (whitespaceParts.length > 0 && whitespaceParts.join(' ') !== parts.join(' ')) {
+      tokenSets.push(whitespaceParts);
+    }
 
-      if (whitespaceParts.length >= 3) {
-        label = whitespaceParts[0];
-        latToken = whitespaceParts[1];
-        lonToken = whitespaceParts[2];
-      } else if (whitespaceParts.length === 2) {
-        latToken = whitespaceParts[0];
-        lonToken = whitespaceParts[1];
-        label = 'Point ' + autoIndex;
+    const tryLatLonFirst = (tokens: string[]): boolean => {
+      if (tokens.length < 2) {
+        return false;
+      }
+      const potentialLat = tokens[0];
+      const potentialLon = tokens[1];
+      const latitude = Number(potentialLat.replace(',', '.'));
+      const longitude = Number(potentialLon.replace(',', '.'));
+
+      if (!isValidNumber(latitude) || !isValidNumber(longitude)) {
+        return false;
+      }
+
+      latToken = potentialLat;
+      lonToken = potentialLon;
+      const labelTokens = tokens.slice(2).filter((token) => token.length > 0);
+      label = labelTokens.length > 0 ? labelTokens.join(' ') : undefined;
+      return true;
+    };
+
+    const tryLabelFirst = (tokens: string[]): boolean => {
+      if (tokens.length < 3) {
+        return false;
+      }
+      label = tokens[0];
+      latToken = tokens[1];
+      lonToken = tokens[2];
+      return true;
+    };
+
+    for (const tokens of tokenSets) {
+      if (!latToken || !lonToken) {
+        if (tryLatLonFirst(tokens)) {
+          break;
+        }
       }
     }
 
     if (!latToken || !lonToken) {
-      errors.push('Line ' + (lineIndex + 1) + ': expected format "label, lat, lon" (received "' + line + '")');
+      for (const tokens of tokenSets) {
+        if (tryLabelFirst(tokens)) {
+          break;
+        }
+      }
+    }
+
+    if (!latToken || !lonToken) {
+      if (parts.length === 2) {
+        latToken = parts[0];
+        lonToken = parts[1];
+      } else if (whitespaceParts.length === 2) {
+        latToken = whitespaceParts[0];
+        lonToken = whitespaceParts[1];
+      }
+    }
+
+    if (!latToken || !lonToken) {
+      errors.push('Line ' + (lineIndex + 1) + ': expected format "latitude, longitude[, label]" or "label, latitude, longitude" (received "' + line + '")');
       return;
     }
 
@@ -87,7 +131,7 @@ export const parseCoordinateLines = (input: string): ParseResult => {
       return;
     }
 
-    const cleanLabel = label || 'Point ' + autoIndex;
+    const cleanLabel = label && label.length > 0 ? label : 'Point ' + autoIndex;
     const id = sanitizeId(cleanLabel, autoIndex);
 
     const duplicates = points.filter((point) => point.id === id).length;
