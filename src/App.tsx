@@ -9,6 +9,7 @@ import { fetchMatrix, fetchRouteGeometry } from './services/openRouteService';
 import { solveAdaptiveTsp } from './algorithms/adaptive';
 import { solveBruteForce } from './algorithms/bruteForce';
 import { solveHeuristic } from './algorithms/heuristic';
+import { describeBruteForceEstimate } from './utils/solverEstimate';
 import { CoordinatePoint, SolveResult, SolverMode, TravelMode } from './types';
 import './App.css';
 
@@ -58,6 +59,7 @@ export const App = () => {
   const [matrixProvider, setMatrixProvider] = useState<string | undefined>(undefined);
   const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
   const [routeWarnings, setRouteWarnings] = useState<string[]>([]);
+  const [preSolveWarnings, setPreSolveWarnings] = useState<string[]>([]);
 
   const parseResult = useMemo(() => parseCoordinateLines(rawInput), [rawInput]);
   const parsedPoints = parseResult.points;
@@ -213,6 +215,31 @@ export const App = () => {
       return;
     }
 
+    if (solverMode === 'brute-force') {
+      const estimate = describeBruteForceEstimate(parsedPoints.length);
+      const warningMessage =
+        'Brute force mode may take approximately ' +
+        estimate +
+        '. This can block your browser while the search explores every permutation.';
+
+      const proceed =
+        typeof window !== 'undefined'
+          ? window.confirm(
+              warningMessage +
+                '\n\nClick “OK” to proceed anyway, or “Cancel” to abort and choose another strategy.'
+            )
+          : true;
+
+      if (!proceed) {
+        setPreSolveWarnings([warningMessage + ' Solver cancelled by user.']);
+        return;
+      }
+
+      setPreSolveWarnings([warningMessage]);
+    } else {
+      setPreSolveWarnings([]);
+    }
+
     await runSolver(parsedPoints);
   };
 
@@ -224,6 +251,7 @@ export const App = () => {
     setRouteCoordinates([]);
     setRouteWarnings([]);
     setError(undefined);
+    setPreSolveWarnings([]);
   }, [rawInput, solverMode, travelMode]);
 
   useEffect(() => {
@@ -236,8 +264,8 @@ export const App = () => {
   }, [parsedPoints, selectedStartId, selectedEndId]);
 
   const combinedWarnings = useMemo(() => {
-    return [...parseWarnings, ...solverWarnings, ...routeWarnings];
-  }, [parseWarnings, solverWarnings, routeWarnings]);
+    return [...parseWarnings, ...preSolveWarnings, ...solverWarnings, ...routeWarnings];
+  }, [parseWarnings, preSolveWarnings, solverWarnings, routeWarnings]);
 
   const effectiveError = error || (parseErrors.length > 0 ? parseErrors.join('\n') : undefined);
 

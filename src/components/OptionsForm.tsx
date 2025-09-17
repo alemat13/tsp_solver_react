@@ -1,5 +1,6 @@
 import { ChangeEvent } from 'react';
 import { CoordinatePoint, SolverMode, TravelMode } from '../types';
+import { describeBruteForceEstimate } from '../utils/solverEstimate';
 
 export interface OptionsFormProps {
   apiKey: string;
@@ -53,6 +54,9 @@ export const OptionsForm = ({
     onSolverModeChange(event.target.value as SolverMode);
   };
 
+  const bruteForceEstimate = describeBruteForceEstimate(points.length);
+  const bruteForceLabel = 'Force brute-force (estimated duration: ' + bruteForceEstimate + ')';
+
   return (
     <section className="panel">
       <h2 className="panel__title">Routing Options</h2>
@@ -89,7 +93,7 @@ export const OptionsForm = ({
           <span className="field__label">Solver strategy</span>
           <select value={solverMode} onChange={handleSolverModeChange}>
             <option value="auto">Automatic (adaptive)</option>
-            <option value="brute-force">Force brute-force</option>
+            <option value="brute-force">{bruteForceLabel}</option>
             <option value="heuristic">Force heuristic</option>
           </select>
           <p className="field__hint">
