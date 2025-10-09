@@ -4,6 +4,7 @@ import { computeTotals, deriveResult } from './common';
 export const solveBruteForce = (request: SolveRequest): SolveResult => {
   const { points, matrix, startId, endId } = request;
   const size = points.length;
+
   if (size < 2) {
     return {
       orderedPoints: points,
@@ -20,26 +21,39 @@ export const solveBruteForce = (request: SolveRequest): SolveResult => {
     idToIndex.set(point.id, index);
   });
 
-  const startIndex = startId ? idToIndex.get(startId) : undefined;
-  const endIndex = endId ? idToIndex.get(endId) : undefined;
+  const startIndex = typeof startId === 'string' ? idToIndex.get(startId) : undefined;
+  const endIndex = typeof endId === 'string' ? idToIndex.get(endId) : undefined;
+  const isLoopRoute = typeof startIndex === 'number' && typeof endIndex === 'number' && startIndex === endIndex;
 
   const indices = points.map((_, index) => index);
+
   const startCandidates =
     typeof startIndex === 'number'
       ? [startIndex]
       : indices.filter((index) => (typeof endIndex === 'number' ? index !== endIndex : true));
 
-  const fixedEnd = typeof endIndex === 'number' ? endIndex : undefined;
+  const fixedEnd = !isLoopRoute && typeof endIndex === 'number' ? endIndex : undefined;
 
   let bestRoute: number[] | undefined;
   let bestDistance = Number.POSITIVE_INFINITY;
   let bestDuration: number | undefined;
+  const resultWarnings: string[] = [];
 
-  const visit = (current: number[], remaining: number[]) => {
+  if (isLoopRoute && size > 1) {
+    resultWarnings.push('Start and end points are identical; treating itinerary as a loop.');
+  }
+
+  const visit = (current: number[], remaining: number[], loopStart?: number) => {
     if (remaining.length === 0) {
-      const completeRoute = fixedEnd !== undefined && current[current.length - 1] !== fixedEnd
-        ? current.concat([fixedEnd])
-        : current.slice();
+      let completeRoute: number[];
+      if (isLoopRoute) {
+        const startNode = loopStart ?? current[0];
+        completeRoute = current[current.length - 1] === startNode ? current.slice() : current.concat([startNode]);
+      } else if (fixedEnd !== undefined && current[current.length - 1] !== fixedEnd) {
+        completeRoute = current.concat([fixedEnd]);
+      } else {
+        completeRoute = current.slice();
+      }
 
       const totals = computeTotals(completeRoute, matrix.distances, matrix.durations);
       if (totals.totalDistance < bestDistance) {
@@ -52,25 +66,31 @@ export const solveBruteForce = (request: SolveRequest): SolveResult => {
 
     for (let i = 0; i < remaining.length; i += 1) {
       const candidate = remaining[i];
-      if (fixedEnd !== undefined && candidate === fixedEnd && remaining.length > 1) {
+      if (!isLoopRoute && fixedEnd !== undefined && candidate === fixedEnd && remaining.length > 1) {
         continue;
       }
 
       const nextRemaining = remaining.slice(0, i).concat(remaining.slice(i + 1));
-      visit(current.concat([candidate]), nextRemaining);
+      visit(current.concat([candidate]), nextRemaining, loopStart);
     }
   };
 
   startCandidates.forEach((start) => {
-    const baseRemaining = indices.filter((index) => index !== start && index !== fixedEnd);
-    const initialRoute = [start];
-
-    if (fixedEnd !== undefined && start === fixedEnd) {
+    if (!isLoopRoute && fixedEnd !== undefined && start === fixedEnd) {
       return;
     }
 
+    const baseRemaining = indices.filter((index) => index !== start && index !== fixedEnd);
+    const initialRoute = [start];
+
     if (baseRemaining.length === 0) {
-      const finalRoute = fixedEnd !== undefined ? initialRoute.concat([fixedEnd]) : initialRoute;
+      let finalRoute = initialRoute.slice();
+      if (isLoopRoute && finalRoute[finalRoute.length - 1] !== start) {
+        finalRoute = finalRoute.concat([start]);
+      } else if (!isLoopRoute && fixedEnd !== undefined && finalRoute[finalRoute.length - 1] !== fixedEnd) {
+        finalRoute = finalRoute.concat([fixedEnd]);
+      }
+
       const totals = computeTotals(finalRoute, matrix.distances, matrix.durations);
       if (totals.totalDistance < bestDistance) {
         bestDistance = totals.totalDistance;
@@ -80,15 +100,28 @@ export const solveBruteForce = (request: SolveRequest): SolveResult => {
       return;
     }
 
-    const initialRemaining = baseRemaining.concat(fixedEnd !== undefined ? [fixedEnd] : []);
-    visit(initialRoute, initialRemaining);
+    const initialRemaining = fixedEnd !== undefined ? baseRemaining.concat([fixedEnd]) : baseRemaining.slice();
+    visit(initialRoute, initialRemaining, start);
   });
 
-  const resolvedRoute = bestRoute || indices;
-  const totals = computeTotals(resolvedRoute, matrix.distances, matrix.durations);
+  let resolvedRoute: number[];
+  if (bestRoute) {
+    resolvedRoute = bestRoute.slice();
+  } else {
+    resolvedRoute = indices.slice();
+    if (!isLoopRoute && fixedEnd !== undefined && resolvedRoute[resolvedRoute.length - 1] !== fixedEnd) {
+      resolvedRoute.push(fixedEnd);
+    }
+    if (isLoopRoute && resolvedRoute.length > 0 && resolvedRoute[resolvedRoute.length - 1] !== resolvedRoute[0]) {
+      resolvedRoute.push(resolvedRoute[0]);
+    }
+  }
 
-  return deriveResult(points, resolvedRoute, {
+  const totals = computeTotals(resolvedRoute, matrix.distances, matrix.durations);
+  const finalTotals = {
     totalDistance: bestDistance === Number.POSITIVE_INFINITY ? totals.totalDistance : bestDistance,
     totalDuration: bestDuration === undefined ? totals.totalDuration : bestDuration,
-  }, 'brute-force', []);
+  };
+
+  return deriveResult(points, resolvedRoute, finalTotals, 'brute-force', resultWarnings);
 };
