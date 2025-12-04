@@ -9,8 +9,8 @@ export default defineConfig({
   },
   base: '/tsp_solver_react/',
   test: {
+    // Test configuration for vitest
     globals: true,
     environment: 'jsdom',
-    setupFiles: './src/test/setup.ts',
   },
 });
