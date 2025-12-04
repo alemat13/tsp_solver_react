@@ -198,5 +198,11 @@ export const solveHeuristic = (request: SolveRequest): SolveResult => {
 
   const warnings: string[] = candidateStarts.length > 1 ? ['Heuristic evaluated multiple starting tours to refine the route.'] : [];
 
+  if (!lockedEnd) {
+    const loopRoute = route.concat([route[0]]);
+    const loopTotals = computeTotals(loopRoute, matrix.distances, matrix.durations);
+    return deriveResult(points, loopRoute, loopTotals, 'heuristic', warnings);
+  }
+
   return deriveResult(points, route, totals, 'heuristic', warnings);
 };
