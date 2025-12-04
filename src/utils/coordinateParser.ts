@@ -26,7 +26,7 @@ export const parseCoordinateLines = (input: string): ParseResult => {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  const lines = input.split(/\r?\n/);
+  const lines = input.replace(/;/g, '\n').split(/\r?\n/);
   let autoIndex = 1;
 
   lines.forEach((rawLine, lineIndex) => {
@@ -134,15 +134,8 @@ export const parseCoordinateLines = (input: string): ParseResult => {
     const cleanLabel = label && label.length > 0 ? label : 'Point ' + autoIndex;
     const id = sanitizeId(cleanLabel, autoIndex);
 
-    const duplicates = points.filter((point) => point.id === id).length;
-    const dedupedId = duplicates ? id + '-' + (duplicates + 1) : id;
-
-    if (duplicates) {
-      warnings.push('Duplicate label detected at line ' + (lineIndex + 1) + '; id adjusted to ' + dedupedId + '.');
-    }
-
     points.push({
-      id: dedupedId,
+      id: id,
       label: cleanLabel,
       latitude,
       longitude,
