@@ -1,5 +1,5 @@
 import { solveBruteForce } from '../bruteForce';
-import { CoordinatePoint, SolveRequest } from '../../types';
+import { CoordinatePoint, MatrixData, SolveRequest } from '../../types';
 
 describe('bruteForce', () => {
   const points: CoordinatePoint[] = [
@@ -13,9 +13,13 @@ describe('bruteForce', () => {
     return Math.abs(p1.latitude - p2.latitude) + Math.abs(p1.longitude - p2.longitude);
   };
 
-  const matrix = {
+  const matrix: MatrixData = {
     distances: points.map((p1) => points.map((p2) => getManhattanDistance(p1, p2))),
     durations: points.map((p1) => points.map((p2) => getManhattanDistance(p1, p2))),
+    provider: 'haversine',
+    profile: 'driving-car',
+    sourceIds: points.map((p) => p.id),
+    destinationIds: points.map((p) => p.id),
   };
 
   it('should return the shortest path', () => {
@@ -27,9 +31,13 @@ describe('bruteForce', () => {
 
   it('should handle a single point', () => {
     const singlePoint = [points[0]];
-    const singlePointMatrix = {
+    const singlePointMatrix: MatrixData = {
       distances: singlePoint.map((p1) => singlePoint.map((p2) => getManhattanDistance(p1, p2))),
       durations: singlePoint.map((p1) => singlePoint.map((p2) => getManhattanDistance(p1, p2))),
+      provider: 'haversine',
+      profile: 'driving-car',
+      sourceIds: singlePoint.map((p) => p.id),
+      destinationIds: singlePoint.map((p) => p.id),
     };
     const request: SolveRequest = { points: singlePoint, matrix: singlePointMatrix };
     const { orderedPoints, totalDistance } = solveBruteForce(request);
@@ -39,9 +47,13 @@ describe('bruteForce', () => {
 
   it('should handle two points', () => {
     const twoPoints = [points[0], points[1]];
-    const twoPointsMatrix = {
+    const twoPointsMatrix: MatrixData = {
       distances: twoPoints.map((p1) => twoPoints.map((p2) => getManhattanDistance(p1, p2))),
       durations: twoPoints.map((p1) => twoPoints.map((p2) => getManhattanDistance(p1, p2))),
+      provider: 'haversine',
+      profile: 'driving-car',
+      sourceIds: twoPoints.map((p) => p.id),
+      destinationIds: twoPoints.map((p) => p.id),
     };
     const request: SolveRequest = { points: twoPoints, matrix: twoPointsMatrix };
     const { orderedPoints, totalDistance } = solveBruteForce(request);
