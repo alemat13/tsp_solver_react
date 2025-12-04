@@ -23,7 +23,7 @@ export const solveBruteForce = (request: SolveRequest): SolveResult => {
 
   const startIndex = typeof startId === 'string' ? idToIndex.get(startId) : undefined;
   const endIndex = typeof endId === 'string' ? idToIndex.get(endId) : undefined;
-  const isLoopRoute = typeof startIndex === 'number' && typeof endIndex === 'number' && startIndex === endIndex;
+  const isLoopRoute = endId === undefined || (typeof startIndex === 'number' && typeof endIndex === 'number' && startIndex === endIndex);
 
   const indices = points.map((_, index) => index);
 
