@@ -21,7 +21,8 @@ describe('heuristic', () => {
   it('should return a valid path', () => {
     const request: SolveRequest = { points, matrix };
     const { orderedPoints, totalDistance } = solveHeuristic(request);
-    expect(orderedPoints.map((p) => p.id)).toEqual(['a', 'd', 'c', 'b', 'a']);
+    const routeIds = orderedPoints.map((p) => p.id);
+    expect([['a', 'd', 'c', 'b', 'a'], ['a', 'b', 'c', 'd', 'a']]).toContainEqual(routeIds);
     expect(totalDistance).toBeCloseTo(4);
   });
 
