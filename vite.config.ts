@@ -7,5 +7,10 @@ export default defineConfig({
     port: 5173,
     open: true
   },
-  base: '/tsp_solver_react/'
+  base: '/tsp_solver_react/',
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+  },
 });
