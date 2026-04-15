@@ -66,7 +66,7 @@ export const describeBruteForceEstimate = (pointCount: number): string => {
 
 export const describeGeneticEstimate = (): string => {
   const EVALUATIONS = 100 * 500;
-  const TIME_PER_EVALUATION_SECONDS = 0.001; // 10 ms per evaluation baseline.
+  const TIME_PER_EVALUATION_SECONDS = 0.001;
   const seconds = EVALUATIONS * TIME_PER_EVALUATION_SECONDS;
   return formatDurationEstimate(seconds);
 };

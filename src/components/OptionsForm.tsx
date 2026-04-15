@@ -54,8 +54,10 @@ export const OptionsForm = ({
     onSolverModeChange(event.target.value as SolverMode);
   };
 
-  const bruteForceEstimate = describeBruteForceEstimate(points.length);
-  const bruteForceLabel = 'Force brute-force (estimated duration: ' + bruteForceEstimate + ')';
+  const bruteForceLabel =
+    points.length >= 2
+      ? `Force brute-force (estimated duration: ${describeBruteForceEstimate(points.length)})`
+      : 'Force brute-force';
 
   return (
     <section className="panel">

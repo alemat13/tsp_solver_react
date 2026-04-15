@@ -156,7 +156,7 @@ export const App = () => {
             startId,
             endId,
           });
-          notes = ['Genetic algorithm strategy selected explicitly by the user.'];
+          notes = ['Genetic strategy selected explicitly by the user.'];
         } else {
           const adaptiveResult = solveAdaptiveTsp({
             points: pointCollection,

@@ -213,12 +213,12 @@ export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<R
   if (!geometry || geometry.length === 0) {
     return {
       coordinates: points.map((point) => [point.latitude, point.longitude]),
-      warnings: ['Detailed route geometry unavailable; displaying straight-line approximation.'],
+      warnings: [...warnings, 'Detailed route geometry unavailable; displaying straight-line approximation.'],
       error: 'OpenRouteService directions response did not contain usable geometry.',
     };
   }
 
-  if (Array.isArray(route?.segments)) {
+  if (geometry && Array.isArray(route?.segments)) {
     // Some ORS responses include repeated first/last coordinate; ensure uniqueness where possible.
     const deduped: [number, number][] = [];
     const seen = new Set<string>();

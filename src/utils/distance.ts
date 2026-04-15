@@ -13,7 +13,7 @@ export const haversineDistance = (a: CoordinatePoint, b: CoordinatePoint): numbe
   const sinLat = Math.sin(deltaLat / 2);
   const sinLon = Math.sin(deltaLon / 2);
 
-  const computation = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+  const computation = Math.min(1, Math.max(0, sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon));
   const angularDistance = 2 * Math.atan2(Math.sqrt(computation), Math.sqrt(1 - computation));
 
   return EARTH_RADIUS_KM * angularDistance * 1000; // convert to meters
