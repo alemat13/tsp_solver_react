@@ -8,6 +8,7 @@ import { useLocalStorage } from './hooks/useLocalStorage';
 import { fetchMatrix, fetchRouteGeometry } from './services/openRouteService';
 import { solveAdaptiveTsp } from './algorithms/adaptive';
 import { solveBruteForce } from './algorithms/bruteForce';
+import { solveGenetic } from './algorithms/genetic';
 import { solveHeuristic } from './algorithms/heuristic';
 import { describeBruteForceEstimate } from './utils/solverEstimate';
 import { CoordinatePoint, SolveResult, SolverMode, TravelMode } from './types';
@@ -148,6 +149,14 @@ export const App = () => {
             endId,
           });
           notes = ['Heuristic strategy selected explicitly by the user.'];
+        } else if (solverMode === 'genetic') {
+          selectedResult = solveGenetic({
+            points: pointCollection,
+            matrix: matrixResult.data,
+            startId,
+            endId,
+          });
+          notes = ['Genetic algorithm strategy selected explicitly by the user.'];
         } else {
           const adaptiveResult = solveAdaptiveTsp({
             points: pointCollection,

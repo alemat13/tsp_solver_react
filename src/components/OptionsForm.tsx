@@ -1,6 +1,6 @@
 import { ChangeEvent } from 'react';
 import { CoordinatePoint, SolverMode, TravelMode } from '../types';
-import { describeBruteForceEstimate } from '../utils/solverEstimate';
+import { describeBruteForceEstimate, describeGeneticEstimate } from '../utils/solverEstimate';
 
 export interface OptionsFormProps {
   apiKey: string;
@@ -95,9 +95,10 @@ export const OptionsForm = ({
             <option value="auto">Automatic (adaptive)</option>
             <option value="brute-force">{bruteForceLabel}</option>
             <option value="heuristic">Force heuristic</option>
+            <option value="genetic">Force genetic</option>
           </select>
           <p className="field__hint">
-            Choose how the itinerary is optimised. Automatic switches between brute force and heuristic based on the number of points.
+            Choose how the itinerary is optimised. Automatic switches between brute force, genetic, and heuristic based on the number of points.
           </p>
         </label>
       </div>
