@@ -5,7 +5,8 @@ import { SolutionPanel } from './components/SolutionPanel';
 import { MapView } from './components/MapView';
 import { parseCoordinateLines } from './utils/coordinateParser';
 import { useLocalStorage } from './hooks/useLocalStorage';
-import { fetchMatrix, fetchRouteGeometry } from './services/openRouteService';
+import { fetchMatrix as fetchORSMatrix, fetchRouteGeometry as fetchORSRouteGeometry } from './services/openRouteService';
+import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRouteGeometry } from './services/googleMapsService';
 import { solveAdaptiveTsp } from './algorithms/adaptive';
 import { solveBruteForce } from './algorithms/bruteForce';
 import { solveGenetic } from './algorithms/genetic';
@@ -15,14 +16,16 @@ import { CoordinatePoint, SolveResult, SolverMode, TravelMode } from './types';
 import './App.css';
 
 interface StorageState {
-  apiKey: string;
+  googleApiKey: string;
+  orsApiKey: string;
   rawInput: string;
   travelMode: TravelMode;
   solverMode: SolverMode;
 }
 
 const initialStorageState: StorageState = {
-  apiKey: '',
+  googleApiKey: '',
+  orsApiKey: '',
   rawInput: '',
   travelMode: 'driving-car',
   solverMode: 'auto',
@@ -35,7 +38,8 @@ const loadStorageState = (value: StorageState | undefined): StorageState => {
     return initialStorageState;
   }
   return {
-    apiKey: value.apiKey || '',
+    googleApiKey: value.googleApiKey || '',
+    orsApiKey: value.orsApiKey || '',
     rawInput: value.rawInput || '',
     travelMode: value.travelMode || 'driving-car',
     solverMode: value.solverMode || 'auto',
@@ -46,7 +50,8 @@ export const App = () => {
   const [storedState, setStoredState] = useLocalStorage<StorageState>(STORAGE_KEY, initialStorageState);
 
   const [rawInput, setRawInput] = useState<string>(loadStorageState(storedState).rawInput);
-  const [apiKey, setApiKey] = useState<string>(loadStorageState(storedState).apiKey);
+  const [googleApiKey, setGoogleApiKey] = useState<string>(loadStorageState(storedState).googleApiKey);
+  const [orsApiKey, setOrsApiKey] = useState<string>(loadStorageState(storedState).orsApiKey);
   const [travelMode, setTravelMode] = useState<TravelMode>(loadStorageState(storedState).travelMode);
   const [solverMode, setSolverMode] = useState<SolverMode>(loadStorageState(storedState).solverMode);
 
@@ -70,7 +75,8 @@ export const App = () => {
   const updateStorage = useCallback(
     (next: Partial<StorageState>) => {
       const merged = {
-        apiKey,
+        googleApiKey,
+        orsApiKey,
         rawInput,
         travelMode,
         solverMode,
@@ -78,7 +84,7 @@ export const App = () => {
       };
       setStoredState(merged);
     },
-    [apiKey, rawInput, travelMode, solverMode, setStoredState]
+    [googleApiKey, orsApiKey, rawInput, travelMode, solverMode, setStoredState]
   );
 
   const handleRawInputChange = (value: string) => {
@@ -86,9 +92,14 @@ export const App = () => {
     updateStorage({ rawInput: value });
   };
 
-  const handleApiKeyChange = (value: string) => {
-    setApiKey(value);
-    updateStorage({ apiKey: value });
+  const handleGoogleApiKeyChange = (value: string) => {
+    setGoogleApiKey(value);
+    updateStorage({ googleApiKey: value });
+  };
+
+  const handleOrsApiKeyChange = (value: string) => {
+    setOrsApiKey(value);
+    updateStorage({ orsApiKey: value });
   };
 
   const handleTravelModeChange = (mode: TravelMode) => {
@@ -121,7 +132,9 @@ export const App = () => {
       setRouteWarnings([]);
 
       try {
-        const matrixResult = await fetchMatrix({ apiKey, profile: travelMode, points: pointCollection });
+        const matrixResult = travelMode === 'transit'
+          ? await fetchGoogleMatrix({ apiKey: googleApiKey, profile: travelMode, points: pointCollection })
+          : await fetchORSMatrix({ apiKey: orsApiKey, profile: travelMode, points: pointCollection });
         const startId = pointCollection.some((point) => point.id === resolvedStartId) ? resolvedStartId : undefined;
         const endId = pointCollection.some((point) => point.id === resolvedEndId) ? resolvedEndId : undefined;
 
@@ -169,7 +182,14 @@ export const App = () => {
         }
 
         setSolution(selectedResult);
-        setMatrixProvider(matrixResult.data.provider === 'openrouteservice' ? 'OpenRouteService' : 'Haversine fallback');
+        const provider = matrixResult.data.provider;
+        setMatrixProvider(
+          provider === 'openrouteservice'
+            ? 'OpenRouteService'
+            : provider === 'google'
+            ? 'Google Maps'
+            : 'Haversine fallback'
+        );
 
         aggregatedSolverWarnings.push.apply(aggregatedSolverWarnings, selectedResult.warnings);
         if (matrixResult.error) {
@@ -182,13 +202,12 @@ export const App = () => {
         let geometryWarnings: string[] = [];
         let geometryCoordinates: [number, number][] = selectedResult.orderedPoints.map((point) => [point.latitude, point.longitude]);
 
-        if (matrixResult.data.provider === 'openrouteservice' && apiKey) {
+        const keyForProvider = matrixResult.data.provider === 'google' ? googleApiKey : orsApiKey;
+        if (keyForProvider) {
           try {
-            const geometryResult = await fetchRouteGeometry({
-              apiKey,
-              profile: travelMode,
-              points: selectedResult.orderedPoints,
-            });
+            const geometryResult = matrixResult.data.provider === 'google'
+              ? await fetchGoogleRouteGeometry({ apiKey: googleApiKey, profile: travelMode, points: selectedResult.orderedPoints })
+              : await fetchORSRouteGeometry({ apiKey: orsApiKey, profile: travelMode, points: selectedResult.orderedPoints });
             geometryCoordinates = geometryResult.coordinates;
             geometryWarnings = geometryResult.warnings.slice();
             if (geometryResult.error) {
@@ -212,7 +231,7 @@ export const App = () => {
         setIsLoading(false);
       }
     },
-    [apiKey, travelMode, resolvedStartId, resolvedEndId, solverMode]
+    [googleApiKey, orsApiKey, travelMode, resolvedStartId, resolvedEndId, solverMode]
   );
 
   const handleSolve = async () => {
@@ -292,8 +311,10 @@ export const App = () => {
         <div className="layout__column layout__column--inputs">
           <CoordinateInput value={rawInput} onChange={handleRawInputChange} onSolve={handleSolve} disabled={!canSolve} />
           <OptionsForm
-            apiKey={apiKey}
-            onApiKeyChange={handleApiKeyChange}
+            googleApiKey={googleApiKey}
+            onGoogleApiKeyChange={handleGoogleApiKeyChange}
+            orsApiKey={orsApiKey}
+            onOrsApiKeyChange={handleOrsApiKeyChange}
             travelMode={travelMode}
             onTravelModeChange={handleTravelModeChange}
             solverMode={solverMode}

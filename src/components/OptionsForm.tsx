@@ -3,8 +3,10 @@ import { CoordinatePoint, SolverMode, TravelMode } from '../types';
 import { describeBruteForceEstimate, describeGeneticEstimate } from '../utils/solverEstimate';
 
 export interface OptionsFormProps {
-  apiKey: string;
-  onApiKeyChange: (value: string) => void;
+  googleApiKey: string;
+  onGoogleApiKeyChange: (value: string) => void;
+  orsApiKey: string;
+  onOrsApiKeyChange: (value: string) => void;
   travelMode: TravelMode;
   onTravelModeChange: (mode: TravelMode) => void;
   solverMode: SolverMode;
@@ -23,11 +25,14 @@ const TRAVEL_MODE_OPTIONS: { label: string; value: TravelMode; description: stri
   { label: 'Cycling (electric)', value: 'cycling-electric', description: 'E-bike profile considering slopes.' },
   { label: 'Walking', value: 'foot-walking', description: 'Pedestrian routes, sidewalks and footpaths.' },
   { label: 'Hiking', value: 'foot-hiking', description: 'Hiking trails with elevation-aware routing.' },
+  { label: 'Public Transport', value: 'transit', description: 'Public transportation (bus, train, subway) routes.' },
 ];
 
 export const OptionsForm = ({
-  apiKey,
-  onApiKeyChange,
+  googleApiKey,
+  onGoogleApiKeyChange,
+  orsApiKey,
+  onOrsApiKeyChange,
   travelMode,
   onTravelModeChange,
   solverMode,
@@ -67,12 +72,25 @@ export const OptionsForm = ({
           <span className="field__label">OpenRouteService API key</span>
           <input
             type="password"
-            value={apiKey}
-            placeholder="Enter your API key"
-            onChange={(event) => onApiKeyChange(event.target.value)}
+            value={orsApiKey}
+            placeholder="Enter ORS API key"
+            onChange={(event) => onOrsApiKeyChange(event.target.value)}
             autoComplete="off"
           />
-          <span className="field__hint">Stored locally in your browser only.</span>
+          <span className="field__hint">Stored locally in your browser only. Used for OpenRouteService API.</span>
+          </label>
+          </div>
+          <div className="field-group">
+          <label className="field">
+          <span className="field__label">Google Maps API key</span>
+          <input
+            type="password"
+            value={googleApiKey}
+            placeholder="Enter Google Maps API key"
+            onChange={(event) => onGoogleApiKeyChange(event.target.value)}
+            autoComplete="off"
+          />
+          <span className="field__hint">Stored locally in your browser only. Used for Google Maps API.</span>
         </label>
       </div>
       <div className="field-group">

@@ -12,7 +12,17 @@ This project provides an interactive interface for users to define a set of "cit
 *   **Algorithm Visualization**: Watch in real-time as algorithms work to find the optimal path.
 *   **Multiple Algorithms**: Compare the results of different TSP-solving algorithms (e.g., Nearest Neighbor, 2-Opt, etc.).
 *   **Performance Metrics**: View the total distance of the calculated path and the time taken to compute it.
+*   **Public Transport Routing**: Use Google Maps Directions API to compute routes using public transportation (bus, train, subway) via the new "Transit" travel mode.
 *   **Responsive Design**: Works on a wide range of screen sizes.
+
+## 🔑 API Key Requirements
+
+This application integrates with external mapping and routing services that require API keys:
+
+*   **OpenRouteService API key**: Required for driving, walking, and cycling modes. Get your free key at [openrouteservice.org](https://openrouteservice.org/).
+*   **Google Maps API key**: Required for transit mode (public transport). Get your key at [Google Cloud Console](https://console.cloud.google.com/).
+
+Both API keys are stored locally in your browser and never sent to any server other than the respective API providers.
 
 ## 🛠️ Tech Stack
 
@@ -24,6 +34,23 @@ This project provides an interactive interface for users to define a set of "cit
 ## 🚀 Getting Started
 
 Follow these instructions to get a copy of the project up and running on your local machine for development and testing purposes.
+
+### API Keys Setup (Required for Routing Features)
+
+To enable routing features that use real-world location data, you need to configure API keys:
+
+1. **Google Maps API key** (for transit mode):
+   - Visit [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project or select an existing one
+   - Enable the "Directions API" and "Maps JavaScript API"
+   - Create an API key and copy it
+
+2. **OpenRouteService API key** (for driving/walking/cycling modes):
+   - Visit [OpenRouteService](https://openrouteservice.org/)
+   - Sign up for a free account
+   - Navigate to your dashboard and copy your API key
+
+Once you have your API keys, they will be stored in your browser's localStorage when you enter them in the application settings.
 
 ### Prerequisites
 

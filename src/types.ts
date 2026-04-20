@@ -4,7 +4,8 @@ export type TravelMode =
   | 'cycling-regular'
   | 'cycling-electric'
   | 'foot-walking'
-  | 'foot-hiking';
+  | 'foot-hiking'
+  | 'transit';
 
 export interface CoordinatePoint {
   id: string;
@@ -21,7 +22,7 @@ export interface MatrixData {
   profile: TravelMode;
   sourceIds: string[];
   destinationIds: string[];
-  provider: 'openrouteservice' | 'haversine';
+  provider: 'openrouteservice' | 'haversine' | 'google';
 }
 
 export interface SolveRequest {
