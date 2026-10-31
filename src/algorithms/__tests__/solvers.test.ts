@@ -94,3 +94,31 @@ describe('heuristic and genetic solvers', () => {
     expect(pathCost(path, problem.cost)).toBeCloseTo(solveExact(request).totalDistance, 6);
   });
 });
+
+describe('objective and unreachable pairs', () => {
+  it('optimises travel time when asked', async () => {
+    const { solveWithMode } = await import('../solve');
+    const request = buildRequest(9, 21);
+    // Durations favour a different order than distances.
+    const durations = request.matrix.distances.map((row, i) => row.map((value, j) => (i === j ? 0 : ((i * 7 + j * 3) % 11) + 1)));
+    const withDurations = { ...request, matrix: { ...request.matrix, durations } };
+    const byTime = await solveWithMode('exact', { ...withDurations, objective: 'duration' });
+    const byDistance = await solveWithMode('exact', withDurations);
+    expect(byTime.result.totalDuration).toBeLessThanOrEqual(byDistance.result.totalDuration as number);
+    expect(byTime.result.objectiveValue).toBeCloseTo(byTime.result.totalDuration as number, 6);
+    expect(byTime.notes.join(' ')).toContain('travel time');
+    const bruteByTime = await solveWithMode('brute-force', { ...withDurations, objective: 'duration' });
+    expect(bruteByTime.result.objectiveValue).toBeCloseTo(byTime.result.objectiveValue as number, 6);
+  });
+
+  it('avoids unreachable legs (Infinity) when an alternative exists', () => {
+    const request = buildRequest(8, 4);
+    const distances = request.matrix.distances.map((row) => row.slice());
+    distances[0][1] = Infinity;
+    distances[1][0] = Infinity;
+    const blocked = { ...request, matrix: { ...request.matrix, distances } };
+    for (const result of [solveExact(blocked), solveHeuristic(blocked)]) {
+      expect(Number.isFinite(result.totalDistance)).toBe(true);
+    }
+  });
+});

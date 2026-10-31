@@ -12,7 +12,9 @@ This project provides an interactive interface for users to define a set of "cit
 *   **Algorithm Visualization**: Watch in real-time as algorithms work to find the optimal path.
 *   **Multiple Algorithms**: Compare the results of different TSP-solving algorithms (e.g., Nearest Neighbor, 2-Opt, etc.).
 *   **Performance Metrics**: View the total distance of the calculated path and the time taken to compute it.
-*   **Public Transport Routing**: Use Google Maps Directions API to compute routes using public transportation (bus, train, subway) via the new "Transit" travel mode.
+*   **Exact solvers**: Held-Karp (up to 17 points) and a Concorde-style branch-and-cut on HiGHS (WebAssembly) that proves optimality for itineraries up to ~80 stops, with loops or open paths (start ≠ end).
+*   **Export**: GPX, KML and Google Maps links for the optimised route.
+*   **Public Transport Routing**: Use the Google Routes API to compute routes using public transportation (bus, train, subway) via the new "Transit" travel mode.
 *   **Responsive Design**: Works on a wide range of screen sizes.
 
 ## 🔑 API Key Requirements
@@ -42,7 +44,8 @@ To enable routing features that use real-world location data, you need to config
 1. **Google Maps API key** (for transit mode):
    - Visit [Google Cloud Console](https://console.cloud.google.com/)
    - Create a new project or select an existing one
-   - Enable the "Directions API" and "Maps JavaScript API"
+   - Enable the "Routes API" (the app calls it directly from the browser)
+   - Restrict the key to your site (HTTP referrer) since it lives in the browser
    - Create an API key and copy it
 
 2. **OpenRouteService API key** (for driving/walking/cycling modes):

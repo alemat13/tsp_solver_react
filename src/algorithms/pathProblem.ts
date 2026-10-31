@@ -37,9 +37,29 @@ export const resolveEndpoints = (request: SolveRequest) => {
   return { start, end, isLoop };
 };
 
+/**
+ * Picks the matrix to minimise and replaces unusable entries (null, NaN, Infinity: pairs the
+ * routing service could not connect) by a large finite penalty, so every solver keeps working
+ * and only uses such a leg when there is no alternative.
+ */
+export const objectiveMatrix = (request: SolveRequest): number[][] => {
+  const { matrix, objective } = request;
+  const source = objective === 'duration' && matrix.durations ? matrix.durations : matrix.distances;
+  let maxFinite = 0;
+  for (const row of source) {
+    for (const value of row) {
+      if (typeof value === 'number' && Number.isFinite(value) && value > maxFinite) maxFinite = value;
+    }
+  }
+  const penalty = Math.max(1, maxFinite) * Math.max(10, source.length * 10);
+  return source.map((row) => row.map((value) => (typeof value === 'number' && Number.isFinite(value) ? value : penalty)));
+};
+
+export const usesDurationObjective = (request: SolveRequest) => request.objective === 'duration' && !!request.matrix.durations;
+
 export const buildPathProblem = (request: SolveRequest): PathProblem => {
   const n = request.points.length;
-  const d = request.matrix.distances;
+  const d = objectiveMatrix(request);
   const { start, end, isLoop } = resolveEndpoints(request);
 
   if (isLoop) {

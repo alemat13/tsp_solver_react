@@ -2,6 +2,9 @@ import { CoordinatePoint, MatrixData, TravelMode } from '../types';
 import { buildHaversineMatrix } from '../utils/distance';
 
 const ORS_BASE_URL = 'https://api.openrouteservice.org/v2/matrix/';
+/** Free-plan limits of the OpenRouteService API. */
+export const ORS_MAX_MATRIX_ELEMENTS = 3500;
+export const ORS_MAX_DIRECTIONS_WAYPOINTS = 50;
 
 export interface MatrixFetchParams {
   apiKey?: string;
@@ -57,35 +60,60 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
   }
 
   const locations = points.map((point) => [point.longitude, point.latitude]);
+  const size = points.length;
+  // ORS caps a matrix request at ORS_MAX_MATRIX_ELEMENTS cells (sources x destinations):
+  // larger inputs are split into blocks of source rows, each against every destination.
+  const rowsPerRequest = Math.max(1, Math.floor(ORS_MAX_MATRIX_ELEMENTS / size));
+  const distances: number[][] = [];
+  const durations: number[][] = [];
+  let durationsComplete = true;
 
-  const body = {
-    locations,
-    metrics: ['distance', 'duration'],
-    units: 'm',
-  };
-
-  const response = await fetch(ORS_BASE_URL + profile, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: apiKey,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    const fallback = buildFallbackMatrix(params);
-    return {
-      data: fallback.data,
-      warnings: fallback.warnings,
-      error: 'OpenRouteService responded with status ' + response.status + ': ' + errorText,
+  for (let first = 0; first < size; first += rowsPerRequest) {
+    const sources = Array.from({ length: Math.min(rowsPerRequest, size - first) }, (_, k) => first + k);
+    const body: Record<string, unknown> = {
+      locations,
+      metrics: ['distance', 'duration'],
+      units: 'm',
     };
-  }
+    if (sources.length < size) body.sources = sources;
 
-  const payload = await response.json();
-  const distances = payload && payload.distances;
-  const durations = payload && payload.durations;
+    const response = await fetch(ORS_BASE_URL + profile, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      const fallback = buildFallbackMatrix(params);
+      return {
+        data: fallback.data,
+        warnings: fallback.warnings,
+        error: 'OpenRouteService responded with status ' + response.status + ': ' + errorText,
+      };
+    }
+
+    const payload = await response.json();
+    const blockDistances = payload && payload.distances;
+    const blockDurations = payload && payload.durations;
+    if (!isValidResponseMatrix(blockDistances) || blockDistances.length !== sources.length) {
+      const fallback = buildFallbackMatrix(params);
+      return {
+        data: fallback.data,
+        warnings: fallback.warnings,
+        error: 'OpenRouteService matrix payload was invalid or incomplete.',
+      };
+    }
+    distances.push(...blockDistances);
+    if (isValidResponseMatrix(blockDurations) && blockDurations.length === sources.length) {
+      durations.push(...blockDurations);
+    } else {
+      durationsComplete = false;
+    }
+  }
 
   if (!isValidResponseMatrix(distances)) {
     const fallback = buildFallbackMatrix(params);
@@ -98,7 +126,7 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
 
   const data: MatrixData = {
     distances,
-    durations: isValidResponseMatrix(durations) ? durations : undefined,
+    durations: durationsComplete ? durations : undefined,
     profile,
     sourceIds: points.map((point) => point.id),
     destinationIds: points.map((point) => point.id),
@@ -154,7 +182,7 @@ const decodePolyline = (polyline: string, precision = 5): [number, number][] => 
   return coordinates;
 };
 
-export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<RouteGeometryResult> => {
+const fetchRouteGeometryChunk = async (params: RouteGeometryParams): Promise<RouteGeometryResult> => {
   const { apiKey, profile, points } = params;
 
   if (points.length < 2) {
@@ -218,22 +246,37 @@ export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<R
     };
   }
 
-  if (geometry && Array.isArray(route?.segments)) {
-    // Some ORS responses include repeated first/last coordinate; ensure uniqueness where possible.
-    const deduped: [number, number][] = [];
-    const seen = new Set<string>();
-    geometry.forEach((pair) => {
-      const key = pair[0].toFixed(6) + ',' + pair[1].toFixed(6);
-      if (!seen.has(key)) {
-        seen.add(key);
-        deduped.push(pair);
-      }
-    });
-    geometry = deduped.length > 1 ? deduped : geometry;
-  }
+  // Drop consecutive duplicates only: a loop legitimately revisits its first coordinate.
+  geometry = geometry.filter((pair, index) => {
+    if (index === 0) return true;
+    const previous = geometry![index - 1];
+    return pair[0].toFixed(6) !== previous[0].toFixed(6) || pair[1].toFixed(6) !== previous[1].toFixed(6);
+  });
 
   return {
     coordinates: geometry,
     warnings,
   };
+};
+
+/**
+ * Route geometry through the ordered points. Itineraries longer than the ORS waypoint limit are
+ * requested in consecutive chunks (each starting where the previous one ended) and stitched.
+ */
+export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<RouteGeometryResult> => {
+  const { points } = params;
+  if (points.length <= ORS_MAX_DIRECTIONS_WAYPOINTS) {
+    return fetchRouteGeometryChunk(params);
+  }
+  const coordinates: [number, number][] = [];
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  for (let start = 0; start < points.length - 1; start += ORS_MAX_DIRECTIONS_WAYPOINTS - 1) {
+    const chunk = points.slice(start, start + ORS_MAX_DIRECTIONS_WAYPOINTS);
+    const result = await fetchRouteGeometryChunk({ ...params, points: chunk });
+    coordinates.push(...(coordinates.length > 0 ? result.coordinates.slice(1) : result.coordinates));
+    warnings.push(...result.warnings.filter((warning) => !warnings.includes(warning)));
+    if (result.error) errors.push(result.error);
+  }
+  return { coordinates, warnings, error: errors.length > 0 ? errors.join(' ') : undefined };
 };

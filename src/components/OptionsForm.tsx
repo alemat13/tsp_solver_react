@@ -1,5 +1,5 @@
 import { ChangeEvent } from 'react';
-import { CoordinatePoint, SolverMode, TravelMode } from '../types';
+import { CoordinatePoint, OptimizationObjective, SolverMode, TravelMode } from '../types';
 import { describeBruteForceEstimate, describeGeneticEstimate } from '../utils/solverEstimate';
 
 export interface OptionsFormProps {
@@ -11,6 +11,10 @@ export interface OptionsFormProps {
   onTravelModeChange: (mode: TravelMode) => void;
   solverMode: SolverMode;
   onSolverModeChange: (mode: SolverMode) => void;
+  objective: OptimizationObjective;
+  onObjectiveChange: (value: OptimizationObjective) => void;
+  exactTimeLimitSeconds: number;
+  onExactTimeLimitChange: (value: number) => void;
   points: CoordinatePoint[];
   startId?: string;
   endId?: string;
@@ -37,6 +41,10 @@ export const OptionsForm = ({
   onTravelModeChange,
   solverMode,
   onSolverModeChange,
+  objective,
+  onObjectiveChange,
+  exactTimeLimitSeconds,
+  onExactTimeLimitChange,
   points,
   startId,
   endId,
@@ -119,8 +127,33 @@ export const OptionsForm = ({
             <option value="genetic">Force genetic</option>
           </select>
           <p className="field__hint">
-            Choose how the itinerary is optimised. Automatic proves the optimal route up to 80 points (Held-Karp, then HiGHS branch-and-cut with a 15 s budget) and uses iterated local search above.
+            Choose how the itinerary is optimised. Automatic proves the optimal route up to 80 points (Held-Karp, then HiGHS branch-and-cut within the time limit below) and uses iterated local search above.
           </p>
+        </label>
+      </div>
+      <div className="field-grid">
+        <label className="field">
+          <span className="field__label">Optimise for</span>
+          <select id="objective" value={objective} onChange={(event) => onObjectiveChange(event.target.value as OptimizationObjective)}>
+            <option value="distance">Shortest distance</option>
+            <option value="duration">Shortest travel time</option>
+          </select>
+          <span className="field__hint">Travel time needs an API key (OpenRouteService or Google).</span>
+        </label>
+        <label className="field">
+          <span className="field__label">Exact solver time limit (seconds)</span>
+          <input
+            id="exact-time-limit"
+            type="number"
+            min={1}
+            max={600}
+            value={exactTimeLimitSeconds}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value) && value >= 1) onExactTimeLimitChange(Math.min(600, Math.round(value)));
+            }}
+          />
+          <span className="field__hint">Past this limit, the best route found is returned with its maximum gap to the optimum.</span>
         </label>
       </div>
       <div className="field-grid">

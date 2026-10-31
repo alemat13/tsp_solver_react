@@ -9,7 +9,7 @@ import { fetchMatrix as fetchORSMatrix, fetchRouteGeometry as fetchORSRouteGeome
 import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRouteGeometry } from './services/googleMapsService';
 import { describeBruteForceEstimate } from './utils/solverEstimate';
 import { solveInBackground } from './services/solverClient';
-import { CoordinatePoint, SolveResult, SolverMode, TravelMode } from './types';
+import { CoordinatePoint, OptimizationObjective, SolveResult, SolverMode, TravelMode } from './types';
 import './App.css';
 
 interface StorageState {
@@ -18,6 +18,8 @@ interface StorageState {
   rawInput: string;
   travelMode: TravelMode;
   solverMode: SolverMode;
+  objective: OptimizationObjective;
+  exactTimeLimitSeconds: number;
 }
 
 const initialStorageState: StorageState = {
@@ -26,6 +28,8 @@ const initialStorageState: StorageState = {
   rawInput: '',
   travelMode: 'driving-car',
   solverMode: 'auto',
+  objective: 'distance',
+  exactTimeLimitSeconds: 15,
 };
 
 const STORAGE_KEY = 'tsp-solver-settings-v1';
@@ -40,6 +44,8 @@ const loadStorageState = (value: StorageState | undefined): StorageState => {
     rawInput: value.rawInput || '',
     travelMode: value.travelMode || 'driving-car',
     solverMode: value.solverMode || 'auto',
+    objective: value.objective === 'duration' ? 'duration' : 'distance',
+    exactTimeLimitSeconds: value.exactTimeLimitSeconds > 0 ? value.exactTimeLimitSeconds : 15,
   };
 };
 
@@ -51,6 +57,8 @@ export const App = () => {
   const [orsApiKey, setOrsApiKey] = useState<string>(loadStorageState(storedState).orsApiKey);
   const [travelMode, setTravelMode] = useState<TravelMode>(loadStorageState(storedState).travelMode);
   const [solverMode, setSolverMode] = useState<SolverMode>(loadStorageState(storedState).solverMode);
+  const [objective, setObjective] = useState<OptimizationObjective>(loadStorageState(storedState).objective);
+  const [exactTimeLimitSeconds, setExactTimeLimitSeconds] = useState<number>(loadStorageState(storedState).exactTimeLimitSeconds);
 
   const [selectedStartId, setSelectedStartId] = useState<string | undefined>(undefined);
   const [selectedEndId, setSelectedEndId] = useState<string | undefined>(undefined);
@@ -77,11 +85,13 @@ export const App = () => {
         rawInput,
         travelMode,
         solverMode,
+        objective,
+        exactTimeLimitSeconds,
         ...next,
       };
       setStoredState(merged);
     },
-    [googleApiKey, orsApiKey, rawInput, travelMode, solverMode, setStoredState]
+    [googleApiKey, orsApiKey, rawInput, travelMode, solverMode, objective, exactTimeLimitSeconds, setStoredState]
   );
 
   const handleRawInputChange = (value: string) => {
@@ -107,6 +117,16 @@ export const App = () => {
   const handleSolverModeChange = (mode: SolverMode) => {
     setSolverMode(mode);
     updateStorage({ solverMode: mode });
+  };
+
+  const handleObjectiveChange = (value: OptimizationObjective) => {
+    setObjective(value);
+    updateStorage({ objective: value });
+  };
+
+  const handleExactTimeLimitChange = (value: number) => {
+    setExactTimeLimitSeconds(value);
+    updateStorage({ exactTimeLimitSeconds: value });
   };
 
   const resolvedStartId = useMemo(() => {
@@ -145,7 +165,8 @@ export const App = () => {
           matrix: matrixResult.data,
           startId,
           endId,
-        });
+          objective,
+        }, { exactTimeLimitMs: exactTimeLimitSeconds * 1000 });
 
         setSolution(selectedResult);
         const provider = matrixResult.data.provider;
@@ -197,7 +218,7 @@ export const App = () => {
         setIsLoading(false);
       }
     },
-    [googleApiKey, orsApiKey, travelMode, resolvedStartId, resolvedEndId, solverMode]
+    [googleApiKey, orsApiKey, travelMode, resolvedStartId, resolvedEndId, solverMode, objective, exactTimeLimitSeconds]
   );
 
   const handleSolve = async () => {
@@ -246,7 +267,7 @@ export const App = () => {
     setRouteWarnings([]);
     setError(undefined);
     setPreSolveWarnings([]);
-  }, [rawInput, solverMode, travelMode]);
+  }, [rawInput, solverMode, travelMode, objective]);
 
   useEffect(() => {
     if (selectedStartId && !parsedPoints.some((point) => point.id === selectedStartId)) {
@@ -285,6 +306,10 @@ export const App = () => {
             onTravelModeChange={handleTravelModeChange}
             solverMode={solverMode}
             onSolverModeChange={handleSolverModeChange}
+            objective={objective}
+            onObjectiveChange={handleObjectiveChange}
+            exactTimeLimitSeconds={exactTimeLimitSeconds}
+            onExactTimeLimitChange={handleExactTimeLimitChange}
             points={parsedPoints}
             startId={resolvedStartId}
             endId={resolvedEndId}
@@ -300,6 +325,8 @@ export const App = () => {
             warnings={combinedWarnings}
             algorithmNotes={algorithmNotes}
             matrixProvider={matrixProvider}
+            routeCoordinates={routeCoordinates}
+            travelMode={travelMode}
           />
           <div className="panel map-panel">
             <h2 className="panel__title">Map preview</h2>

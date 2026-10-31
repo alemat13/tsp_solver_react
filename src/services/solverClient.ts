@@ -6,9 +6,13 @@ import { SolveRequest, SolverMode } from '../types';
  * Runs the solver in a Web Worker so the UI stays responsive. Falls back to the main thread
  * when workers are unavailable (tests, very old browsers).
  */
-export const solveInBackground = (mode: SolverMode, request: SolveRequest): Promise<SolveOutcome> => {
+export interface SolverOptions {
+  exactTimeLimitMs?: number;
+}
+
+export const solveInBackground = (mode: SolverMode, request: SolveRequest, options: SolverOptions = {}): Promise<SolveOutcome> => {
   if (typeof Worker === 'undefined') {
-    return solveWithMode(mode, request, { loadHighs });
+    return solveWithMode(mode, request, { loadHighs, ...options });
   }
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('../workers/solver.worker.ts', import.meta.url), { type: 'module' });
@@ -21,6 +25,6 @@ export const solveInBackground = (mode: SolverMode, request: SolveRequest): Prom
       worker.terminate();
       reject(new Error(event.message || 'Solver worker failed.'));
     };
-    worker.postMessage({ mode, request });
+    worker.postMessage({ mode, request, options });
   });
 };

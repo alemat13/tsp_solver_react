@@ -25,11 +25,15 @@ export interface MatrixData {
   provider: 'openrouteservice' | 'haversine' | 'google';
 }
 
+export type OptimizationObjective = 'distance' | 'duration';
+
 export interface SolveRequest {
   points: CoordinatePoint[];
   matrix: MatrixData;
   startId?: string;
   endId?: string;
+  /** What to minimise; 'duration' needs matrix.durations (falls back to distance). */
+  objective?: OptimizationObjective;
 }
 
 export interface SolveResult {
@@ -41,6 +45,8 @@ export interface SolveResult {
   warnings: string[];
   /** Proven lower bound on the optimal distance (exact solvers). */
   lowerBound?: number;
+  /** Value of the minimised objective (distance or duration) for this route. */
+  objectiveValue?: number;
   /** True when the route is proven optimal. */
   provenOptimal?: boolean;
 }

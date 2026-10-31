@@ -1,4 +1,5 @@
 import { SolveResult } from '../types';
+import { buildGoogleMapsLinks, buildGpx, buildKml, downloadTextFile } from '../utils/exportRoute';
 
 export interface SolutionPanelProps {
   isLoading: boolean;
@@ -7,6 +8,9 @@ export interface SolutionPanelProps {
   warnings: string[];
   algorithmNotes: string[];
   matrixProvider?: string;
+  /** Detailed road geometry of the route, used by the GPX/KML export. */
+  routeCoordinates?: [number, number][];
+  travelMode?: string;
 }
 
 const formatDistance = (distance: number | undefined) => {
@@ -34,8 +38,9 @@ const formatDuration = (seconds: number | undefined) => {
 
 const describeOptimality = (result: SolveResult): string => {
   if (result.provenOptimal) return 'Proven optimal';
-  if (typeof result.lowerBound === 'number' && result.totalDistance > 0) {
-    const gap = (result.totalDistance - result.lowerBound) / result.totalDistance;
+  const value = result.objectiveValue ?? result.totalDistance;
+  if (typeof result.lowerBound === 'number' && value > 0) {
+    const gap = (value - result.lowerBound) / value;
     return 'Within ' + (gap * 100).toFixed(2) + '% of optimal';
   }
   return 'Not proven';
@@ -48,7 +53,17 @@ export const SolutionPanel = ({
   warnings,
   algorithmNotes,
   matrixProvider,
+  routeCoordinates,
+  travelMode,
 }: SolutionPanelProps) => {
+  const exportRoute = (format: 'gpx' | 'kml') => {
+    if (!result) return;
+    const route = { name: 'Itinerary (' + result.orderedPoints.length + ' stops)', stops: result.orderedPoints, geometry: routeCoordinates };
+    if (format === 'gpx') downloadTextFile('itinerary.gpx', buildGpx(route), 'application/gpx+xml');
+    else downloadTextFile('itinerary.kml', buildKml(route), 'application/vnd.google-earth.kml+xml');
+  };
+  const googleMapsLinks = result ? buildGoogleMapsLinks(result.orderedPoints, travelMode ?? 'driving-car') : [];
+
   return (
     <section className="panel">
       <h2 className="panel__title">Itinerary</h2>
@@ -78,6 +93,19 @@ export const SolutionPanel = ({
               <span className="summary__label">Matrix provider</span>
               <span className="summary__value">{matrixProvider || 'Not available'}</span>
             </div>
+          </div>
+          <div className="export-bar">
+            <button type="button" className="secondary" onClick={() => exportRoute('gpx')}>
+              Download GPX
+            </button>
+            <button type="button" className="secondary" onClick={() => exportRoute('kml')}>
+              Download KML
+            </button>
+            {googleMapsLinks.map((link, index) => (
+              <a key={link} className="secondary" href={link} target="_blank" rel="noreferrer">
+                {googleMapsLinks.length > 1 ? 'Google Maps, part ' + (index + 1) + '/' + googleMapsLinks.length : 'Open in Google Maps'}
+              </a>
+            ))}
           </div>
           <ol className="itinerary">
             {result.orderedPoints.map((point, index) => (

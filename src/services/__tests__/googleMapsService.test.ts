@@ -2,34 +2,71 @@ import { vi } from 'vitest';
 import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRouteGeometry } from '../googleMapsService';
 import { CoordinatePoint } from '../../types';
 
-// Mock global fetch
 globalThis.fetch = vi.fn();
+const mockFetch = () => globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
 
 const mockPoints: CoordinatePoint[] = [
-  { id: '1', label: 'A', latitude: 40.7128, longitude: -74.006 },
-  { id: '2', label: 'B', latitude: 34.0522, longitude: -118.2437 },
+  { id: '1', label: 'A', latitude: 48.8584, longitude: 2.2945 },
+  { id: '2', label: 'B', latitude: 48.8606, longitude: 2.3376 },
 ];
-describe('Google Maps Service', () => {
+
+const element = (originIndex: number, destinationIndex: number, distanceMeters: number, seconds: number) => ({
+  originIndex,
+  destinationIndex,
+  distanceMeters,
+  duration: seconds + 's',
+  condition: 'ROUTE_EXISTS',
+});
+
+describe('Google Maps Service (Routes API)', () => {
   beforeEach(() => {
-    // @ts-ignore
-    (globalThis.fetch as any).mockReset();
+    mockFetch().mockReset();
   });
 
-  test('fetchMatrix returns parsed distances and durations', async () => {
-    const mockResponse = {
-      rows: [
-        { elements: [{ distance: { value: 1000 }, duration: { value: 600 }, status: 'OK' }, { distance: { value: 2000 }, duration: { value: 1200 }, status: 'OK' }] },
-        { elements: [{ distance: { value: 3000 }, duration: { value: 1800 }, status: 'OK' }, { distance: { value: 4000 }, duration: { value: 2400 }, status: 'OK' }] },
-      ],
-    };
-    // @ts-ignore
-    fetch.mockResolvedValue({ ok: true, json: async () => mockResponse });
+  test('fetchMatrix parses the route matrix and sends the key in a header', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      json: async () => [element(0, 0, 0, 0), element(0, 1, 2000, 1200), element(1, 0, 3000, 1800), element(1, 1, 0, 0)],
+    });
 
     const result = await fetchGoogleMatrix({ apiKey: 'test-key', profile: 'transit', points: mockPoints });
-    expect(result.data.distances).toEqual([[1000, 2000], [3000, 4000]]);
-    expect(result.data.durations).toEqual([[600, 1200], [1800, 2400]]);
+    expect(result.data.distances).toEqual([[0, 2000], [3000, 0]]);
+    expect(result.data.durations).toEqual([[0, 1200], [1800, 0]]);
     expect(result.data.provider).toBe('google');
     expect(result.warnings).toHaveLength(0);
+
+    const [url, init] = mockFetch().mock.calls[0];
+    expect(url).toContain('routes.googleapis.com');
+    expect(url).not.toContain('test-key');
+    expect(init.headers['X-Goog-Api-Key']).toBe('test-key');
+    expect(JSON.parse(init.body).travelMode).toBe('TRANSIT');
+  });
+
+  test('fetchMatrix splits large inputs into 10 x 10 blocks', async () => {
+    const points = Array.from({ length: 15 }, (_, i) => ({ id: 'p' + i, label: 'P' + i, latitude: 48.8 + i / 100, longitude: 2.3 }));
+    mockFetch().mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body);
+      const elements = [];
+      for (let o = 0; o < body.origins.length; o += 1) {
+        for (let d = 0; d < body.destinations.length; d += 1) elements.push(element(o, d, 100, 60));
+      }
+      return { ok: true, json: async () => elements };
+    });
+
+    const result = await fetchGoogleMatrix({ apiKey: 'k', profile: 'transit', points });
+    expect(mockFetch()).toHaveBeenCalledTimes(4);
+    expect(result.data.distances[14][0]).toBe(100);
+    expect(result.data.distances[3][3]).toBe(0);
+  });
+
+  test('fetchMatrix marks pairs without a transit route as unreachable', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      json: async () => [element(0, 1, 2000, 1200), { originIndex: 1, destinationIndex: 0, condition: 'ROUTE_NOT_FOUND' }],
+    });
+    const result = await fetchGoogleMatrix({ apiKey: 'k', profile: 'transit', points: mockPoints });
+    expect(result.data.distances[1][0]).toBe(Infinity);
+    expect(result.warnings[0]).toContain('no public-transport connection');
   });
 
   test('fetchMatrix falls back to Haversine when API key missing', async () => {
@@ -38,99 +75,41 @@ describe('Google Maps Service', () => {
     expect(result.warnings).toContain('Google Maps fallback to Haversine distances.');
   });
 
-  test('fetchRouteGeometry decodes polyline', async () => {
-    // Simple polyline for two points (encoded) – using Google's polyline algorithm
-    const encoded = '_p~iF~ps|U_ulLnnqC_mqNvxq`@'; // corresponds to [(38.5, -120.2), (40.7, -120.95), (43.252, -126.453)]
-    const mockResponse = { routes: [{ overview_polyline: { points: encoded } }] };
-    // @ts-ignore
-    fetch.mockResolvedValue({ ok: true, json: async () => mockResponse });
+  test('fetchMatrix falls back on HTTP errors', async () => {
+    mockFetch().mockResolvedValue({ ok: false, status: 403, text: async () => 'API key invalid' });
+    const result = await fetchGoogleMatrix({ apiKey: 'k', profile: 'transit', points: mockPoints });
+    expect(result.data.provider).toBe('haversine');
+    expect(result.error).toContain('Google Routes API error 403');
+  });
 
-    const result = await fetchGoogleRouteGeometry({ apiKey: 'test-key', profile: 'transit', points: mockPoints });
-    expect(result.coordinates.length).toBeGreaterThan(0);
+  test('fetchMatrix falls back on invalid payloads and network errors', async () => {
+    mockFetch().mockResolvedValue({ ok: true, json: async () => ({ invalid: 'response' }) });
+    expect((await fetchGoogleMatrix({ apiKey: 'k', profile: 'transit', points: mockPoints })).error).toContain('Invalid');
+
+    mockFetch().mockRejectedValue(new Error('Network down'));
+    const result = await fetchGoogleMatrix({ apiKey: 'k', profile: 'transit', points: mockPoints });
+    expect(result.data.provider).toBe('haversine');
+    expect(result.error).toContain('Network down');
+  });
+
+  test('fetchRouteGeometry decodes one polyline per leg', async () => {
+    const encoded = '_p~iF~ps|U_ulLnnqC_mqNvxq`@';
+    mockFetch().mockResolvedValue({ ok: true, json: async () => ({ routes: [{ polyline: { encodedPolyline: encoded } }] }) });
+    const points = [...mockPoints, { id: '3', label: 'C', latitude: 48.853, longitude: 2.3499 }];
+    const result = await fetchGoogleRouteGeometry({ apiKey: 'k', profile: 'transit', points });
+    expect(mockFetch()).toHaveBeenCalledTimes(2);
+    expect(result.coordinates.length).toBe(5); // 3 + 3 points, shared junction dropped
     expect(result.warnings).toHaveLength(0);
-    expect(result.error).toBeUndefined();
   });
 
-  describe('fetchMatrix error handling', () => {
-    test('handles HTTP error status (4xx)', async () => {
-      // @ts-ignore
-      fetch.mockResolvedValue({ ok: false, status: 403, statusText: 'Forbidden', text: async () => 'API key invalid' });
+  test('fetchRouteGeometry falls back to straight lines on errors', async () => {
+    mockFetch().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const result = await fetchGoogleRouteGeometry({ apiKey: 'k', profile: 'transit', points: mockPoints });
+    expect(result.coordinates).toEqual([[48.8584, 2.2945], [48.8606, 2.3376]]);
+    expect(result.error).toContain('500');
 
-      const result = await fetchGoogleMatrix({ apiKey: 'test-key', profile: 'transit', points: mockPoints });
-
-      expect(result.data.provider).toBe('haversine');
-      expect(result.data.distances[0][1]).toBeGreaterThan(0);
-      expect(result.error).toContain('Google Distance Matrix error 403');
-      expect(result.warnings).toContain('Google Maps fallback to Haversine distances.');
-    });
-
-    test('handles HTTP error status (5xx)', async () => {
-      // @ts-ignore
-      fetch.mockResolvedValue({ ok: false, status: 503, statusText: 'Service Unavailable', text: async () => 'Service unavailable' });
-
-      const result = await fetchGoogleMatrix({ apiKey: 'test-key', profile: 'transit', points: mockPoints });
-
-      expect(result.data.provider).toBe('haversine');
-      expect(result.error).toContain('Google Distance Matrix error 503');
-      expect(result.warnings).toContain('Google Maps fallback to Haversine distances.');
-    });
-
-    test('handles invalid response format', async () => {
-      const mockResponse = { invalid: 'response' };
-      // @ts-ignore
-      fetch.mockResolvedValue({ ok: true, json: async () => mockResponse });
-
-      const result = await fetchGoogleMatrix({ apiKey: 'test-key', profile: 'transit', points: mockPoints });
-
-      expect(result.data.provider).toBe('haversine');
-      expect(result.error).toBe('Invalid Google Distance Matrix response format.');
-      expect(result.warnings).toContain('Google Maps fallback to Haversine distances.');
-    });
-
-    test('handles network error (fetch throws)', async () => {
-      // @ts-ignore
-      fetch.mockRejectedValue(new Error('Network error: Failed to fetch'));
-
-      const result = await fetchGoogleMatrix({ apiKey: 'test-key', profile: 'transit', points: mockPoints });
-
-      expect(result.data.provider).toBe('haversine');
-      expect(result.error).toContain('Google Distance Matrix request failed: Network error');
-      expect(result.warnings).toContain('Google Maps fallback to Haversine distances.');
-    });
-  });
-
-  describe('fetchRouteGeometry error handling', () => {
-    test('handles HTTP error status', async () => {
-      // @ts-ignore
-      fetch.mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found', text: async () => 'Route not found' });
-
-      const result = await fetchGoogleRouteGeometry({ apiKey: 'test-key', profile: 'transit', points: mockPoints });
-
-      expect(result.coordinates).toEqual([[40.7128, -74.006], [34.0522, -118.2437]]);
-      expect(result.error).toContain('Google Directions error 404');
-      expect(result.warnings).toContain('Failed to fetch Google route geometry – using straight‑line fallback.');
-    });
-
-    test('handles invalid response format (no routes)', async () => {
-      const mockResponse = { invalid: 'response' };
-      // @ts-ignore
-      fetch.mockResolvedValue({ ok: true, json: async () => mockResponse });
-
-      const result = await fetchGoogleRouteGeometry({ apiKey: 'test-key', profile: 'transit', points: mockPoints });
-
-      expect(result.coordinates).toEqual([[40.7128, -74.006], [34.0522, -118.2437]]);
-      expect(result.warnings).toContain('Google Directions returned no polyline – using straight‑line fallback.');
-    });
-
-    test('handles fetch network error', async () => {
-      // @ts-ignore
-      fetch.mockRejectedValue(new Error('Network error: Failed to fetch'));
-
-      const result = await fetchGoogleRouteGeometry({ apiKey: 'test-key', profile: 'transit', points: mockPoints });
-
-      expect(result.coordinates).toEqual([[40.7128, -74.006], [34.0522, -118.2437]]);
-      expect(result.error).toBe('Network error: Failed to fetch');
-      expect(result.warnings).toContain('Google Directions request failed – using straight‑line fallback.');
-    });
+    mockFetch().mockResolvedValue({ ok: true, json: async () => ({ routes: [] }) });
+    const empty = await fetchGoogleRouteGeometry({ apiKey: 'k', profile: 'transit', points: mockPoints });
+    expect(empty.warnings[0]).toContain('straight');
   });
 });

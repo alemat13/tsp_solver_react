@@ -6,7 +6,7 @@ import { EXACT_POINT_LIMIT, solveExact } from './exact';
 import { solveGenetic } from './genetic';
 import { solveHeuristic } from './heuristic';
 import { iteratedLocalSearch } from './localSearch';
-import { buildPathProblem } from './pathProblem';
+import { buildPathProblem, objectiveMatrix, pathCost, usesDurationObjective } from './pathProblem';
 
 export interface SolveOutcome {
   result: SolveResult;
@@ -18,7 +18,7 @@ export interface SolveContext {
   loadHighs?: () => Promise<HighsLike>;
   /** Time budget for branch-and-cut in explicit "exact" mode. */
   exactTimeLimitMs?: number;
-  /** Time budget for branch-and-cut in automatic mode. */
+  /** Time budget for branch-and-cut in automatic mode (defaults to exactTimeLimitMs, then 15 s). */
   autoTimeLimitMs?: number;
 }
 
@@ -63,10 +63,32 @@ const runBranchAndCut = async (request: SolveRequest, context: SolveContext, tim
 
 /** Single entry point used by the UI (through the Web Worker) and by tests. */
 export const solveWithMode = async (mode: SolverMode, request: SolveRequest, context: SolveContext = {}): Promise<SolveOutcome> => {
+  const outcome = await dispatch(mode, request, context);
+  const ids = new Map(request.points.map((point, index) => [point.id, index]));
+  const route = outcome.result.orderedIds.map((id) => ids.get(id) as number);
+  const objectiveValue = route.length > 1 ? pathCost(route, objectiveMatrix(request)) : 0;
+  const notes = usesDurationObjective(request) ? outcome.notes.concat(['Route optimised for travel time.']) : outcome.notes;
+  const warnings =
+    request.objective === 'duration' && !request.matrix.durations
+      ? outcome.result.warnings.concat(['No travel times available from this provider; route optimised for distance instead.'])
+      : outcome.result.warnings;
+  return { result: { ...outcome.result, objectiveValue, warnings }, notes };
+};
+
+const dispatch = async (mode: SolverMode, request: SolveRequest, context: SolveContext = {}): Promise<SolveOutcome> => {
   const size = request.points.length;
   switch (mode) {
-    case 'brute-force':
-      return { result: solveBruteForce(request), notes: ['Brute force strategy selected explicitly by the user.'] };
+    case 'brute-force': {
+      // Brute force reads matrix.distances directly: give it the objective matrix, then restore totals.
+      const result = solveBruteForce({ ...request, matrix: { ...request.matrix, distances: objectiveMatrix(request), durations: undefined } });
+      const ids = new Map(request.points.map((point, index) => [point.id, index]));
+      const route = result.orderedIds.map((id) => ids.get(id) as number);
+      const totals = computeTotals(route, request.matrix.distances, request.matrix.durations);
+      return {
+        result: { ...result, totalDistance: totals.totalDistance, totalDuration: totals.totalDuration },
+        notes: ['Brute force strategy selected explicitly by the user.'],
+      };
+    }
     case 'heuristic':
       return { result: solveHeuristic(request), notes: ['Heuristic strategy selected explicitly by the user.'] };
     case 'genetic':
@@ -84,7 +106,7 @@ export const solveWithMode = async (mode: SolverMode, request: SolveRequest, con
         };
       }
       if (size <= AUTO_BRANCH_AND_CUT_LIMIT) {
-        return runBranchAndCut(request, context, context.autoTimeLimitMs ?? 15000);
+        return runBranchAndCut(request, context, context.autoTimeLimitMs ?? context.exactTimeLimitMs ?? 15000);
       }
       return {
         result: solveHeuristic(request),
