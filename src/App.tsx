@@ -7,11 +7,8 @@ import { parseCoordinateLines } from './utils/coordinateParser';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { fetchMatrix as fetchORSMatrix, fetchRouteGeometry as fetchORSRouteGeometry } from './services/openRouteService';
 import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRouteGeometry } from './services/googleMapsService';
-import { solveAdaptiveTsp } from './algorithms/adaptive';
-import { solveBruteForce } from './algorithms/bruteForce';
-import { solveGenetic } from './algorithms/genetic';
-import { solveHeuristic } from './algorithms/heuristic';
 import { describeBruteForceEstimate } from './utils/solverEstimate';
+import { solveInBackground } from './services/solverClient';
 import { CoordinatePoint, SolveResult, SolverMode, TravelMode } from './types';
 import './App.css';
 
@@ -138,48 +135,17 @@ export const App = () => {
         const startId = pointCollection.some((point) => point.id === resolvedStartId) ? resolvedStartId : undefined;
         const endId = pointCollection.some((point) => point.id === resolvedEndId) ? resolvedEndId : undefined;
 
-        let selectedResult: SolveResult;
-        let notes: string[] = [];
-
         const aggregatedSolverWarnings: string[] = matrixResult.warnings.slice();
-
-        if (solverMode === 'brute-force') {
-          selectedResult = solveBruteForce({
-            points: pointCollection,
-            matrix: matrixResult.data,
-            startId,
-            endId,
-          });
-          notes = ['Brute force strategy selected explicitly by the user.'];
-          if (pointCollection.length > 10) {
-            aggregatedSolverWarnings.push('Brute force search may take significant time for ' + pointCollection.length + ' points.');
-          }
-        } else if (solverMode === 'heuristic') {
-          selectedResult = solveHeuristic({
-            points: pointCollection,
-            matrix: matrixResult.data,
-            startId,
-            endId,
-          });
-          notes = ['Heuristic strategy selected explicitly by the user.'];
-        } else if (solverMode === 'genetic') {
-          selectedResult = solveGenetic({
-            points: pointCollection,
-            matrix: matrixResult.data,
-            startId,
-            endId,
-          });
-          notes = ['Genetic strategy selected explicitly by the user.'];
-        } else {
-          const adaptiveResult = solveAdaptiveTsp({
-            points: pointCollection,
-            matrix: matrixResult.data,
-            startId,
-            endId,
-          });
-          selectedResult = adaptiveResult;
-          notes = adaptiveResult.notes;
+        if (solverMode === 'brute-force' && pointCollection.length > 10) {
+          aggregatedSolverWarnings.push('Brute force search may take significant time for ' + pointCollection.length + ' points.');
         }
+
+        const { result: selectedResult, notes } = await solveInBackground(solverMode, {
+          points: pointCollection,
+          matrix: matrixResult.data,
+          startId,
+          endId,
+        });
 
         setSolution(selectedResult);
         const provider = matrixResult.data.provider;

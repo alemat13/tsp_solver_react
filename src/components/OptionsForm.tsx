@@ -113,12 +113,13 @@ export const OptionsForm = ({
           <span className="field__label">Solver strategy</span>
           <select value={solverMode} onChange={handleSolverModeChange}>
             <option value="auto">Automatic (adaptive)</option>
+            <option value="exact">Force exact (Held-Karp, up to 17 points)</option>
             <option value="brute-force">{bruteForceLabel}</option>
             <option value="heuristic">Force heuristic</option>
             <option value="genetic">Force genetic</option>
           </select>
           <p className="field__hint">
-            Choose how the itinerary is optimised. Automatic switches between brute force, genetic, and heuristic based on the number of points.
+            Choose how the itinerary is optimised. Automatic uses the exact solver (optimal route) up to 17 points and iterated local search above.
           </p>
         </label>
       </div>

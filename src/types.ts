@@ -37,8 +37,8 @@ export interface SolveResult {
   orderedIds: string[];
   totalDistance: number;
   totalDuration?: number;
-  strategy: 'brute-force' | 'heuristic' | 'genetic';
+  strategy: 'brute-force' | 'exact' | 'heuristic' | 'genetic';
   warnings: string[];
 }
 
-export type SolverMode = 'auto' | 'brute-force' | 'heuristic' | 'genetic';
+export type SolverMode = 'auto' | 'exact' | 'brute-force' | 'heuristic' | 'genetic';
