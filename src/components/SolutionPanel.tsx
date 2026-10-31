@@ -32,6 +32,15 @@ const formatDuration = (seconds: number | undefined) => {
   return minutes + ' min';
 };
 
+const describeOptimality = (result: SolveResult): string => {
+  if (result.provenOptimal) return 'Proven optimal';
+  if (typeof result.lowerBound === 'number' && result.totalDistance > 0) {
+    const gap = (result.totalDistance - result.lowerBound) / result.totalDistance;
+    return 'Within ' + (gap * 100).toFixed(2) + '% of optimal';
+  }
+  return 'Not proven';
+};
+
 export const SolutionPanel = ({
   isLoading,
   error,
@@ -52,6 +61,10 @@ export const SolutionPanel = ({
             <div>
               <span className="summary__label">Strategy</span>
               <span className="summary__value">{result.strategy}</span>
+            </div>
+            <div>
+              <span className="summary__label">Optimality</span>
+              <span className="summary__value">{describeOptimality(result)}</span>
             </div>
             <div>
               <span className="summary__label">Total distance</span>

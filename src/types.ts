@@ -39,6 +39,10 @@ export interface SolveResult {
   totalDuration?: number;
   strategy: 'brute-force' | 'exact' | 'heuristic' | 'genetic';
   warnings: string[];
+  /** Proven lower bound on the optimal distance (exact solvers). */
+  lowerBound?: number;
+  /** True when the route is proven optimal. */
+  provenOptimal?: boolean;
 }
 
 export type SolverMode = 'auto' | 'exact' | 'brute-force' | 'heuristic' | 'genetic';

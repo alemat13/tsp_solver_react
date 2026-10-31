@@ -1,3 +1,4 @@
+import { loadHighs } from '../algorithms/highsLoader';
 import { SolveOutcome, solveWithMode } from '../algorithms/solve';
 import { SolveRequest, SolverMode } from '../types';
 
@@ -7,7 +8,7 @@ import { SolveRequest, SolverMode } from '../types';
  */
 export const solveInBackground = (mode: SolverMode, request: SolveRequest): Promise<SolveOutcome> => {
   if (typeof Worker === 'undefined') {
-    return Promise.resolve().then(() => solveWithMode(mode, request));
+    return solveWithMode(mode, request, { loadHighs });
   }
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('../workers/solver.worker.ts', import.meta.url), { type: 'module' });
