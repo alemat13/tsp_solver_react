@@ -12,6 +12,8 @@
  * OpenStreetMap (ODbL) and may be stored; Nominatim's usage policy even asks clients to cache.
  */
 
+import type { TransitLeg } from '../types';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface CacheOptions {
@@ -262,3 +264,12 @@ export const geocodeCache = new ApiCache<unknown>('geocode', { ttlMs: 30 * DAY_M
 export const googleMatrixCache = new ApiCache<PairValue>('google-matrix', { ttlMs: 6 * 60 * 60 * 1000, persist: false });
 /** Google transit leg polylines (lat/lng only): persisted for at most 30 days, as the terms allow. */
 export const googleLegCache = new ApiCache<string | null>('google-legs', { ttlMs: 30 * DAY_MS - 60 * 60 * 1000, persist: true, maxEntries: 5_000 });
+/**
+ * Google transit directions per leg (lines, stops, times): memory only, as the Google terms do not
+ * allow storing them, and short-lived because the departure times are for "leaving now".
+ */
+export const googleTransitLegCache = new ApiCache<TransitLeg | null>('google-transit-legs', {
+  ttlMs: 10 * 60 * 1000,
+  persist: false,
+  maxEntries: 2_000,
+});

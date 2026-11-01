@@ -15,7 +15,7 @@ import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRout
 import { solveInBackground } from './services/solverClient';
 import { describeBruteForceEstimate } from './utils/solverEstimate';
 import { TRAVEL_MODES, travelModeOption } from './ui/travelModes';
-import { CoordinatePoint, MatrixData, SolveResult } from './types';
+import { CoordinatePoint, MatrixData, SolveResult, TransitLeg } from './types';
 import './App.css';
 
 interface Solution {
@@ -177,14 +177,19 @@ export const App = () => {
       if (matrixResult.error) warnings.push(matrixResult.error);
 
       let geometry: [number, number][] = result.orderedPoints.map((point) => [point.latitude, point.longitude]);
+      let transitLegs: (TransitLeg | undefined)[] | undefined;
       const provider = matrixResult.data.provider;
       const key = provider === 'google' ? googleApiKey : orsApiKey;
       if (key && provider !== 'haversine') {
         try {
-          const geometryResult =
-            provider === 'google'
-              ? await fetchGoogleRouteGeometry({ apiKey: googleApiKey, profile: travelMode, points: result.orderedPoints })
-              : await fetchORSRouteGeometry({ apiKey: orsApiKey, profile: travelMode, points: result.orderedPoints });
+          let geometryResult: { coordinates: [number, number][]; warnings: string[]; error?: string };
+          if (provider === 'google') {
+            const googleResult = await fetchGoogleRouteGeometry({ apiKey: googleApiKey, profile: travelMode, points: result.orderedPoints });
+            transitLegs = googleResult.transitLegs;
+            geometryResult = googleResult;
+          } else {
+            geometryResult = await fetchORSRouteGeometry({ apiKey: orsApiKey, profile: travelMode, points: result.orderedPoints });
+          }
           if (geometryResult.coordinates.length > 1) geometry = geometryResult.coordinates;
           warnings.push(...geometryResult.warnings);
           if (geometryResult.error) warnings.push(geometryResult.error);
@@ -197,7 +202,7 @@ export const App = () => {
         result,
         notes,
         warnings,
-        legs: computeLegs(result.orderedPoints, matrixResult.data, points),
+        legs: computeLegs(result.orderedPoints, matrixResult.data, points).map((leg, i) => (transitLegs?.[i] ? { ...leg, transit: transitLegs[i] } : leg)),
         provider: PROVIDER_LABELS[provider],
         geometry,
       });
