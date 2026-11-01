@@ -1,5 +1,7 @@
 import { SolveRequest, SolveResult } from '../types';
-import { computeTotals, deriveResult, Totals } from './common';
+import { computeTotals, deriveResult } from './common';
+import { improvePath, nearestNeighbourPath } from './localSearch';
+import { buildPathProblem } from './pathProblem';
 
 const NUMBER_EPSILON = Number.EPSILON || 2.220446049250313e-16;
 
@@ -128,46 +130,6 @@ const reverseSequenceMutation = (route: number[]): number[] => {
   return mutated;
 };
 
-const twoOptSwap = (route: number[], i: number, k: number): number[] => {
-  const start = route.slice(0, i);
-  const middle = route.slice(i, k + 1).reverse();
-  const end = route.slice(k + 1);
-  return start.concat(middle, end);
-};
-
-const refineWithTwoOpt = (route: number[], distances: number[][], lockedStart?: boolean, lockedEnd?: boolean): number[] => {
-  let improved = route.slice();
-  let improvedAny = true;
-  
-  while (improvedAny) {
-    improvedAny = false;
-    for (let i = 1; i < improved.length - 2; i += 1) {
-      if (lockedStart && i === 1) {
-        continue;
-      }
-      for (let k = i + 1; k < improved.length - 1; k += 1) {
-        if (lockedEnd && k + 1 >= improved.length - 1) {
-          continue;
-        }
-        const a = improved[i - 1];
-        const b = improved[i];
-        const c = improved[k];
-        const d = improved[k + 1];
-        
-        const currentDistance = distances[a][b] + distances[c][d];
-        const swappedDistance = distances[a][c] + distances[b][d];
-        
-        if (swappedDistance < currentDistance - 1e-6) {
-          improved = twoOptSwap(improved, i, k);
-          improvedAny = true;
-        }
-      }
-    }
-  }
-  
-  return improved;
-};
-
 const evaluatePopulation = (population: number[][], distances: number[][]): number[] => {
   return population.map((route) => {
     const totals = computeTotals(route, distances);
@@ -176,10 +138,9 @@ const evaluatePopulation = (population: number[][], distances: number[][]): numb
 };
 
 export const solveGenetic = (request: SolveRequest): SolveResult => {
-  const { points, matrix, startId, endId } = request;
-  const size = points.length;
-  
-  if (size < 2) {
+  const { points, matrix } = request;
+
+  if (points.length < 2) {
     return {
       orderedPoints: points,
       orderedIds: points.map((point) => point.id),
@@ -190,51 +151,36 @@ export const solveGenetic = (request: SolveRequest): SolveResult => {
     };
   }
   
-  const idToIndex = new Map<string, number>();
-  points.forEach((point, index) => {
-    idToIndex.set(point.id, index);
-  });
-  
-  const fixedStart = startId ? idToIndex.get(startId) : undefined;
-  const fixedEnd = endId ? idToIndex.get(endId) : undefined;
-  
-  const warnings: string[] = [];
-  
-  const sameStartEnd = typeof fixedStart === 'number' && typeof fixedEnd === 'number' && fixedStart === fixedEnd;
-  if (sameStartEnd && size > 1) {
-    warnings.push('Start and end points are identical; treating itinerary as a loop.');
-  }
-  
-  const lockedStart = typeof fixedStart === 'number';
-  // When start and end are the same we only lock the start; the end is implicit
-  const lockedEnd = typeof fixedEnd === 'number' && !sameStartEnd;
-  
-  // Special handling for the trivial case of two points. If start and end are the same we
-  // simply visit the other point after the start.
-  if (size === 2) {
-    const start = typeof fixedStart === 'number' ? fixedStart : 0;
-    const other = start === 0 ? 1 : 0;
-    
-    let route: number[];
-    if (sameStartEnd) {
-      route = [start, other];
-    } else if (lockedStart && lockedEnd) {
-      route = [start, fixedEnd as number];
-    } else {
-      route = [start, other];
-    }
-    
+  const problem = buildPathProblem(request);
+  const distances = problem.cost;
+  const fixedStart = problem.source;
+  const fixedEnd = problem.sink;
+  const lockedStart = true;
+  const lockedEnd = true;
+  const genomeSize = problem.size;
+  const warnings: string[] =
+    problem.isLoop && request.startId !== undefined && request.startId === request.endId
+      ? ['Start and end points are identical; treating itinerary as a loop.']
+      : [];
+
+  const finish = (path: number[]): SolveResult => {
+    const route = problem.toRoute(improvePath(path, distances));
     const totals = computeTotals(route, matrix.distances, matrix.durations);
     return deriveResult(points, route, totals, 'genetic', warnings);
+  };
+
+  if (genomeSize <= 3) {
+    const inner = Array.from({ length: genomeSize }, (_, i) => i).filter((i) => i !== fixedStart && i !== fixedEnd);
+    return finish([fixedStart, ...inner, fixedEnd]);
   }
-  
+
   const maxGenerations = 500;
   const populationSize = 100;
   const tournamentSize = 3;
   const mutationRate = 0.15;
   const elitismCount = 1;
   
-  let population = generateInitialPopulation(size, populationSize, fixedStart, fixedEnd);
+  let population = generateInitialPopulation(genomeSize, populationSize, fixedStart, fixedEnd);
   
   if (lockedStart || lockedEnd) {
     population = population.map(route => {
@@ -256,19 +202,17 @@ export const solveGenetic = (request: SolveRequest): SolveResult => {
   
   let bestRoute: number[] | undefined;
   let bestScore = Number.POSITIVE_INFINITY;
-  let bestTotals: Totals = { totalDistance: Number.POSITIVE_INFINITY, totalDuration: undefined };
   
   for (let generation = 0; generation < maxGenerations; generation += 1) {
-    const fitnesses = evaluatePopulation(population, matrix.distances);
+    const fitnesses = evaluatePopulation(population, distances);
     
     for (let i = 0; i < population.length; i += 1) {
       const route = population[i];
-      const totals = computeTotals(route, matrix.distances, matrix.durations);
+      const totals = computeTotals(route, distances);
       
       if (totals.totalDistance < bestScore - NUMBER_EPSILON) {
         bestScore = totals.totalDistance;
         bestRoute = route.slice();
-        bestTotals = totals;
       }
     }
     
@@ -289,8 +233,8 @@ export const solveGenetic = (request: SolveRequest): SolveResult => {
     }
     
     while (newPopulation.length < populationSize) {
-      const parent1 = tournamentSelection(population, matrix.distances, tournamentSize);
-      const parent2 = tournamentSelection(population, matrix.distances, tournamentSize);
+      const parent1 = tournamentSelection(population, distances, tournamentSize);
+      const parent2 = tournamentSelection(population, distances, tournamentSize);
       
       const child = orderCrossover(parent1, parent2);
       
@@ -323,33 +267,8 @@ export const solveGenetic = (request: SolveRequest): SolveResult => {
     }
   }
   
-  if (bestRoute && bestScore < Number.POSITIVE_INFINITY - NUMBER_EPSILON) {
-    let finalRoute = refineWithTwoOpt(bestRoute, matrix.distances, lockedStart, lockedEnd);
-    if (sameStartEnd) {
-      // Append start index to close the loop explicitly; computeTotals will include the return leg.
-      finalRoute = [...finalRoute, fixedStart as number];
-    }
-    const totals = computeTotals(finalRoute, matrix.distances, matrix.durations);
-    return deriveResult(points, finalRoute, totals, 'genetic', warnings);
+  if (bestRoute) {
+    return finish(bestRoute);
   }
-  
-  let fallbackRoute = Array.from({ length: size }, (_, i) => i);
-  if (lockedStart) {
-    const idx = fallbackRoute.indexOf(fixedStart);
-    if (idx !== -1) {
-      [fallbackRoute[0], fallbackRoute[idx]] = [fallbackRoute[idx], fallbackRoute[0]];
-    }
-  }
-  if (lockedEnd) {
-    const idx = fallbackRoute.indexOf(fixedEnd);
-    if (idx !== -1) {
-      [fallbackRoute[fallbackRoute.length - 1], fallbackRoute[idx]] = [fallbackRoute[idx], fallbackRoute[fallbackRoute.length - 1]];
-    }
-  }
-  if (sameStartEnd) {
-    // Append start index to close the loop explicitly for the fallback route.
-    fallbackRoute = [...fallbackRoute, fixedStart as number];
-  }
-  const totals = computeTotals(fallbackRoute, matrix.distances, matrix.durations);
-  return deriveResult(points, fallbackRoute, totals, 'genetic', warnings);
+  return finish(nearestNeighbourPath(problem));
 };

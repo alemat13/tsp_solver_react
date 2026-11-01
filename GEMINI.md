@@ -33,9 +33,12 @@ It orchestrates the process of parsing user input, calling the appropriate TSP s
 
 This directory contains the React components that make up the user interface:
 
-- `CoordinateInput.tsx`: A text area for users to input coordinates.
-- `OptionsForm.tsx`: A form for configuring the solver, such as selecting the travel mode and solver algorithm.
-- `SolutionPanel.tsx`: A panel to display the results of the TSP calculation.
+- `MapView.tsx`: Full-screen Leaflet map with numbered pins, the route and tap-to-add.
+- `Sheet.tsx`: Draggable bottom sheet on mobile, docked side panel on desktop (>= 900px).
+- `StopSearch.tsx` / `StopList.tsx`: Address search (ORS autocomplete or Nominatim) and the stop list with start/end roles.
+- `ResultView.tsx`: Route summary, per-leg distances, exports (Google Maps, GPX, KML).
+- `SettingsDialog.tsx` / `ImportDialog.tsx`: API keys with how-to guides, objective and algorithm help; bulk import/export of coordinates.
+- State lives in `src/state/usePersistentState.ts` (localStorage, migrates the old text-based format). UI text is in English.
 - `MapView.tsx`: The component that renders the map with the points and the route.
 
 ### `src/algorithms/`
@@ -62,4 +65,4 @@ This file contains the logic for interacting with the OpenRouteService API. It i
     ```
 3.  Open your browser to `http://localhost:5173` (or whatever port Vite assigns).
 
-To use the routing features, you will need to obtain an API key from [OpenRouteService](https://openrouteservice.org/) and enter it into the application's options form.
+To use the routing features, you will need to obtain an API key from a free HeiGIT account ([account.heigit.org/signup](https://account.heigit.org/signup)) and enter it into the application's options form.

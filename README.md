@@ -12,14 +12,16 @@ This project provides an interactive interface for users to define a set of "cit
 *   **Algorithm Visualization**: Watch in real-time as algorithms work to find the optimal path.
 *   **Multiple Algorithms**: Compare the results of different TSP-solving algorithms (e.g., Nearest Neighbor, 2-Opt, etc.).
 *   **Performance Metrics**: View the total distance of the calculated path and the time taken to compute it.
-*   **Public Transport Routing**: Use Google Maps Directions API to compute routes using public transportation (bus, train, subway) via the new "Transit" travel mode.
+*   **Exact solvers**: Held-Karp (up to 17 points) and a Concorde-style branch-and-cut on HiGHS (WebAssembly) that proves optimality for itineraries up to ~80 stops, with loops or open paths (start ≠ end).
+*   **Export**: GPX, KML and Google Maps links for the optimised route.
+*   **Public Transport Routing**: Use the Google Routes API to compute routes using public transportation (bus, train, subway) via the new "Transit" travel mode.
 *   **Responsive Design**: Works on a wide range of screen sizes.
 
 ## 🔑 API Key Requirements
 
 This application integrates with external mapping and routing services that require API keys:
 
-*   **OpenRouteService API key**: Required for driving, walking, and cycling modes. Get your free key at [openrouteservice.org](https://openrouteservice.org/).
+*   **OpenRouteService API key**: Required for driving, walking, and cycling modes. Get your free key from a HeiGIT account at [account.heigit.org/signup](https://account.heigit.org/signup) (the app calls the API at `api.heigit.org/openrouteservice`; the old `api.openrouteservice.org` host shuts down in November 2026).
 *   **Google Maps API key**: Required for transit mode (public transport). Get your key at [Google Cloud Console](https://console.cloud.google.com/).
 
 Both API keys are stored locally in your browser and never sent to any server other than the respective API providers.
@@ -42,13 +44,14 @@ To enable routing features that use real-world location data, you need to config
 1. **Google Maps API key** (for transit mode):
    - Visit [Google Cloud Console](https://console.cloud.google.com/)
    - Create a new project or select an existing one
-   - Enable the "Directions API" and "Maps JavaScript API"
+   - Enable the "Routes API" (the app calls it directly from the browser)
+   - Restrict the key to your site (HTTP referrer) since it lives in the browser
    - Create an API key and copy it
 
 2. **OpenRouteService API key** (for driving/walking/cycling modes):
-   - Visit [OpenRouteService](https://openrouteservice.org/)
-   - Sign up for a free account
-   - Navigate to your dashboard and copy your API key
+   - Create a free HeiGIT account at [account.heigit.org/signup](https://account.heigit.org/signup) (it comes with a free Standard key)
+   - Open the [HeiGIT dashboard](https://account.heigit.org) and copy your API key
+   - API reference: [ORS documentation](https://giscience.github.io/openrouteservice/)
 
 Once you have your API keys, they will be stored in your browser's localStorage when you enter them in the application settings.
 

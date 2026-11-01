@@ -74,7 +74,11 @@ describe('adaptive', () => {
   it('should handle a fixed start point', () => {
     const request: SolveRequest = { points, matrix, startId: 'b' };
     const { orderedPoints, totalDistance } = solveAdaptiveTsp(request);
-    expect(orderedPoints.map((p) => p.id)).toEqual(['b', 'a', 'd', 'c', 'b']);
+    // Both directions around the square cost the same: only check the loop shape.
+    const ids = orderedPoints.map((p) => p.id);
+    expect(ids[0]).toBe('b');
+    expect(ids[ids.length - 1]).toBe('b');
+    expect(new Set(ids)).toEqual(new Set(['a', 'b', 'c', 'd']));
     expect(totalDistance).toBeCloseTo(4);
   });
 });

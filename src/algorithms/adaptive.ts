@@ -1,33 +1,22 @@
 import { SolveRequest, SolveResult } from '../types';
-import { solveBruteForce } from './bruteForce';
-import { solveGenetic } from './genetic';
+import { EXACT_POINT_LIMIT, solveExact } from './exact';
 import { solveHeuristic } from './heuristic';
-
-const BRUTE_FORCE_LIMIT = 9;
-const GENETIC_LIMIT = 20;
 
 export interface AdaptiveOutcome extends SolveResult {
   notes: string[];
 }
 
+/**
+ * Exact Held-Karp up to EXACT_POINT_LIMIT points (optimal, well under a second),
+ * iterated local search above (near-optimal in milliseconds to a second).
+ */
 export const solveAdaptiveTsp = (request: SolveRequest): AdaptiveOutcome => {
   const size = request.points.length;
-  const notes: string[] = [];
-
-  let result: SolveResult;
-  if (size <= BRUTE_FORCE_LIMIT) {
-    result = solveBruteForce(request);
-    notes.push('Brute force strategy selected for ' + size + ' locations.');
-  } else if (size <= GENETIC_LIMIT) {
-    result = solveGenetic(request);
-    notes.push('Genetic strategy selected for ' + size + ' locations.');
-  } else {
-    result = solveHeuristic(request);
-    notes.push('Heuristic strategy selected for ' + size + ' locations.');
+  if (size <= EXACT_POINT_LIMIT) {
+    return { ...solveExact(request), notes: ['Exact (Held-Karp) strategy selected for ' + size + ' locations: the route is optimal.'] };
   }
-
   return {
-    ...result,
-    notes,
+    ...solveHeuristic(request),
+    notes: ['Heuristic strategy (iterated local search) selected for ' + size + ' locations.'],
   };
 };

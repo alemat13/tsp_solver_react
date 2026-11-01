@@ -37,8 +37,9 @@ describe('genetic algorithm', () => {
       matrix,
     };
     const result = solveGenetic(request);
-    // Should return all points exactly once (or looped if start/end not fixed)
-    expect(result.orderedIds.length).toBe(points.length);
+    // No end point: the itinerary is a loop, like every other solver.
+    expect(result.orderedIds.length).toBe(points.length + 1);
+    expect(result.orderedIds[0]).toBe(result.orderedIds[result.orderedIds.length - 1]);
     const uniqueIds = new Set(result.orderedIds);
     expect(uniqueIds.size).toBe(points.length);
     // Total distance should be a finite number
