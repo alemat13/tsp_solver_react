@@ -16,7 +16,7 @@ const ORS_AUTOCOMPLETE_URLS = ['https://api.heigit.org/pelias/v1/autocomplete', 
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse';
 
-const language = () => (typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'fr');
+const language = () => (typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en');
 
 interface OrsFeature {
   geometry?: { coordinates?: [number, number] };
@@ -54,13 +54,13 @@ export const searchWithOrs = async (query: string, apiKey: string, focus?: [numb
       if (signal?.aborted) throw error;
     }
   }
-  if (!body) throw new Error('Recherche OpenRouteService indisponible' + (lastStatus ? ' (' + lastStatus + ')' : '') + '.');
+  if (!body) throw new Error('OpenRouteService search unavailable' + (lastStatus ? ' (' + lastStatus + ')' : '') + '.');
   return (body.features || [])
     .filter((feature) => feature.geometry?.coordinates)
     .map((feature) => {
       const [longitude, latitude] = feature.geometry!.coordinates!;
       const props = feature.properties || {};
-      const label = props.name || props.label || 'Lieu';
+      const label = props.name || props.label || 'Place';
       const detail = [props.locality, props.region, props.country].filter(Boolean).join(', ');
       return { label, detail: detail || props.label, latitude, longitude };
     });
@@ -83,7 +83,7 @@ const splitDisplayName = (item: NominatimItem): { label: string; detail?: string
 export const searchWithNominatim = async (query: string, signal?: AbortSignal): Promise<GeocodeResult[]> => {
   const params = new URLSearchParams({ q: query, format: 'jsonv2', limit: '6', 'accept-language': language() });
   const response = await fetch(NOMINATIM_SEARCH_URL + '?' + params.toString(), { signal });
-  if (!response.ok) throw new Error('Recherche indisponible (Nominatim ' + response.status + ').');
+  if (!response.ok) throw new Error('Search unavailable (Nominatim ' + response.status + ').');
   const items = (await response.json()) as NominatimItem[];
   return items.map((item) => ({ ...splitDisplayName(item), latitude: Number(item.lat), longitude: Number(item.lon) }));
 };

@@ -38,7 +38,7 @@ This directory contains the React components that make up the user interface:
 - `StopSearch.tsx` / `StopList.tsx`: Address search (ORS autocomplete or Nominatim) and the stop list with start/end roles.
 - `ResultView.tsx`: Route summary, per-leg distances, exports (Google Maps, GPX, KML).
 - `SettingsDialog.tsx` / `ImportDialog.tsx`: API keys with how-to guides, objective and algorithm help; bulk import/export of coordinates.
-- State lives in `src/state/usePersistentState.ts` (localStorage, migrates the old text-based format). The UI is in French.
+- State lives in `src/state/usePersistentState.ts` (localStorage, migrates the old text-based format). UI text is in English.
 - `MapView.tsx`: The component that renders the map with the points and the route.
 
 ### `src/algorithms/`

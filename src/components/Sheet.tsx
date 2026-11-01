@@ -92,7 +92,7 @@ export const Sheet = ({ docked, snap, onSnapChange, onCoverChange, header, foote
     <section
       className={'sheet sheet--mobile' + (dragHeight !== null ? ' sheet--dragging' : '')}
       style={{ height }}
-      aria-label="Panneau de l’itinéraire"
+      aria-label="Route panel"
     >
       <div
         className="sheet__header sheet__header--draggable"
@@ -101,7 +101,7 @@ export const Sheet = ({ docked, snap, onSnapChange, onCoverChange, header, foote
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
       >
-        <button type="button" className="sheet__handle" onClick={cycle} aria-label="Agrandir ou réduire le panneau">
+        <button type="button" className="sheet__handle" onClick={cycle} aria-label="Expand or collapse the panel">
           <span />
         </button>
         {header}

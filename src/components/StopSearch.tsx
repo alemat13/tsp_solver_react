@@ -48,7 +48,7 @@ export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange }: StopSearc
       if (controller.signal.aborted) return;
       setResults([]);
       setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'Recherche indisponible.');
+      setMessage(error instanceof Error ? error.message : 'Search unavailable.');
     }
   };
 
@@ -88,19 +88,19 @@ export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange }: StopSearc
   const locate = () => {
     if (!navigator.geolocation) {
       setStatus('error');
-      setMessage('La géolocalisation n’est pas disponible sur cet appareil.');
+      setMessage('Geolocation is not available on this device.');
       return;
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setLocating(false);
-        onAdd({ label: 'Ma position', latitude: position.coords.latitude, longitude: position.coords.longitude });
+        onAdd({ label: 'My location', latitude: position.coords.latitude, longitude: position.coords.longitude });
       },
       () => {
         setLocating(false);
         setStatus('error');
-        setMessage('Position introuvable (autorisation refusée ?).');
+        setMessage('Could not get your location (permission denied?).');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -115,7 +115,7 @@ export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange }: StopSearc
           type="search"
           enterKeyHint="search"
           value={query}
-          placeholder="Ajouter une adresse, un lieu…"
+          placeholder="Add an address or place…"
           onChange={(event) => {
             setQuery(event.target.value);
             if (!live) {
@@ -125,15 +125,15 @@ export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange }: StopSearc
           }}
           onFocus={() => onFocusChange?.(true)}
           onBlur={() => onFocusChange?.(false)}
-          aria-label="Ajouter une étape"
+          aria-label="Add a stop"
         />
-        {status === 'loading' && <Loader2 className="spin search__trailing" size={18} aria-label="Recherche…" />}
+        {status === 'loading' && <Loader2 className="spin search__trailing" size={18} aria-label="Searching…" />}
         {query && status !== 'loading' && (
-          <button type="button" className="icon-button icon-button--ghost search__trailing" onClick={reset} aria-label="Effacer">
+          <button type="button" className="icon-button icon-button--ghost search__trailing" onClick={reset} aria-label="Clear">
             <X size={18} />
           </button>
         )}
-        <button type="button" className="icon-button" onClick={locate} aria-label="Ajouter ma position" title="Ajouter ma position">
+        <button type="button" className="icon-button" onClick={locate} aria-label="Add my location" title="Add my location">
           {locating ? <Loader2 className="spin" size={18} /> : <LocateFixed size={18} />}
         </button>
       </form>
@@ -144,7 +144,7 @@ export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange }: StopSearc
               <button type="button" onClick={() => pick({ label: coordinateMatch.label, latitude: coordinateMatch.latitude, longitude: coordinateMatch.longitude })}>
                 <MapPin size={16} aria-hidden />
                 <span>
-                  <strong>Ajouter ces coordonnées</strong>
+                  <strong>Add these coordinates</strong>
                   <small>
                     {coordinateMatch.latitude}, {coordinateMatch.longitude}
                   </small>
@@ -163,7 +163,7 @@ export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange }: StopSearc
               </button>
             </li>
           ))}
-          {status === 'empty' && <li className="search__message">Aucun résultat.</li>}
+          {status === 'empty' && <li className="search__message">No results.</li>}
           {status === 'error' && <li className="search__message search__message--error">{message}</li>}
         </ul>
       )}

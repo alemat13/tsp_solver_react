@@ -24,24 +24,24 @@ export const ImportDialog = ({ open, onClose, hasStops, onImport, exportText }: 
 
   return (
     <Modal
-      title="Importer des étapes"
+      title="Import stops"
       open={open}
       onClose={onClose}
       footer={
         <>
           {hasStops && (
             <button type="button" className="button" disabled={!valid} onClick={() => run('replace')}>
-              Remplacer
+              Replace
             </button>
           )}
           <button type="button" className="button button--primary" disabled={!valid} onClick={() => run('append')}>
-            Ajouter {parsed.points.length > 0 ? parsed.points.length + ' étape' + (parsed.points.length > 1 ? 's' : '') : ''}
+            Add {parsed.points.length > 0 ? parsed.points.length + ' stop' + (parsed.points.length > 1 ? 's' : '') : ''}
           </button>
         </>
       }
     >
       <p className="hint">
-        Une étape par ligne : <code>lat, lon, nom</code> ou <code>nom, lat, lon</code>. Les lignes commençant par # sont ignorées.
+        One stop per line: <code>lat, lon, name</code> or <code>name, lat, lon</code>. Lines starting with # are ignored.
       </p>
       <textarea
         className="import__textarea"
@@ -60,7 +60,7 @@ export const ImportDialog = ({ open, onClose, hasStops, onImport, exportText }: 
       )}
       {hasStops && (
         <details className="callout">
-          <summary>Copier les étapes actuelles</summary>
+          <summary>Copy the current stops</summary>
           <textarea className="import__textarea" readOnly value={exportText} rows={5} onFocus={(event) => event.currentTarget.select()} />
         </details>
       )}

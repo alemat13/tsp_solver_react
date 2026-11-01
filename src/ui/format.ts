@@ -4,7 +4,7 @@ export const formatDistance = (meters: number | undefined): string => {
   if (meters === undefined || !Number.isFinite(meters)) return '–';
   if (meters < 1000) return Math.round(meters) + ' m';
   const km = meters / 1000;
-  return (km >= 100 ? km.toFixed(0) : km.toFixed(1)).replace('.', ',') + ' km';
+  return (km >= 100 ? km.toFixed(0) : km.toFixed(1)) + ' km';
 };
 
 export const formatDuration = (seconds: number | undefined): string => {
@@ -13,7 +13,7 @@ export const formatDuration = (seconds: number | undefined): string => {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   if (hours === 0) return minutes + ' min';
-  return hours + ' h ' + String(minutes).padStart(2, '0');
+  return hours + ' h ' + String(minutes).padStart(2, '0') + ' min';
 };
 
 export const formatCoords = (latitude: number, longitude: number) => latitude.toFixed(5) + ', ' + longitude.toFixed(5);
@@ -21,18 +21,18 @@ export const formatCoords = (latitude: number, longitude: number) => latitude.to
 export type OptimalityKind = 'optimal' | 'bounded' | 'unknown';
 
 export const describeOptimality = (result: SolveResult): { kind: OptimalityKind; label: string } => {
-  if (result.provenOptimal) return { kind: 'optimal', label: 'Optimal prouvé' };
+  if (result.provenOptimal) return { kind: 'optimal', label: 'Proven optimal' };
   const value = result.objectiveValue ?? result.totalDistance;
   if (typeof result.lowerBound === 'number' && value > 0) {
     const gap = Math.max(0, (value - result.lowerBound) / value);
-    return { kind: 'bounded', label: 'À ' + (gap * 100).toFixed(1).replace('.', ',') + ' % max de l’optimum' };
+    return { kind: 'bounded', label: 'Within ' + (gap * 100).toFixed(1) + '% of optimal' };
   }
-  return { kind: 'unknown', label: 'Bonne solution (non prouvée)' };
+  return { kind: 'unknown', label: 'Good route (not proven optimal)' };
 };
 
 export const STRATEGY_LABELS: Record<SolveResult['strategy'], string> = {
   exact: 'Exact',
-  'brute-force': 'Force brute',
-  heuristic: 'Heuristique',
-  genetic: 'Génétique',
+  'brute-force': 'Brute force',
+  heuristic: 'Heuristic',
+  genetic: 'Genetic',
 };

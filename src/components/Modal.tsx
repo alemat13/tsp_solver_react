@@ -23,7 +23,7 @@ export const Modal = ({ title, open, onClose, children, footer }: ModalProps) =>
       <div className="modal__card" role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()}>
         <header className="modal__header">
           <h2>{title}</h2>
-          <button type="button" className="icon-button icon-button--ghost" onClick={onClose} aria-label="Fermer">
+          <button type="button" className="icon-button icon-button--ghost" onClick={onClose} aria-label="Close">
             <X size={20} />
           </button>
         </header>

@@ -679,10 +679,8 @@ svg.search__trailing {
 }
 
 .menu {
-  position: absolute;
-  z-index: 10;
-  right: 0;
-  top: 44px;
+  position: fixed;
+  z-index: 1500;
   min-width: 210px;
   padding: 6px;
   border: 1px solid var(--border);
@@ -691,10 +689,6 @@ svg.search__trailing {
   box-shadow: var(--shadow-lg);
 }
 
-.stop:nth-last-child(-n + 2):not(:nth-child(-n + 3)) .menu {
-  top: auto;
-  bottom: 44px;
-}
 
 .menu button {
   display: flex;

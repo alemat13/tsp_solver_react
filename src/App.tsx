@@ -30,7 +30,7 @@ interface Solution {
 const PROVIDER_LABELS: Record<MatrixData['provider'], string> = {
   openrouteservice: 'OpenRouteService',
   google: 'Google Maps',
-  haversine: 'vol d’oiseau',
+  haversine: 'straight-line',
 };
 
 const computeLegs = (route: CoordinatePoint[], matrix: MatrixData, points: CoordinatePoint[]): Leg[] => {
@@ -147,7 +147,7 @@ export const App = () => {
   };
 
   const clearAll = () => {
-    if (window.confirm('Supprimer toutes les étapes ?')) updateStops(() => ({ points: [] }));
+    if (window.confirm('Remove all stops?')) updateStops(() => ({ points: [] }));
   };
 
   const solve = async () => {
@@ -155,8 +155,8 @@ export const App = () => {
     const preWarnings: string[] = [];
     if (solverMode === 'brute-force') {
       const estimate = describeBruteForceEstimate(points.length);
-      if (!window.confirm('La force brute peut prendre environ ' + estimate + '. Continuer ?')) return;
-      preWarnings.push('Force brute : durée estimée ' + estimate + '.');
+      if (!window.confirm('Brute force may take about ' + estimate + '. Continue?')) return;
+      preWarnings.push('Brute force: estimated ' + estimate + '.');
     }
 
     setIsSolving(true);
@@ -189,7 +189,7 @@ export const App = () => {
           warnings.push(...geometryResult.warnings);
           if (geometryResult.error) warnings.push(geometryResult.error);
         } catch (routeError) {
-          warnings.push('Tracé détaillé indisponible : ' + (routeError instanceof Error ? routeError.message : 'erreur inconnue'));
+          warnings.push('Detailed route geometry unavailable: ' + (routeError instanceof Error ? routeError.message : 'unknown error'));
         }
       }
 
@@ -205,7 +205,7 @@ export const App = () => {
       setFitRequest((count) => count + 1);
       if (!desktop) setSnap('half');
     } catch (solveError) {
-      setError(solveError instanceof Error ? solveError.message : 'Erreur inattendue pendant le calcul.');
+      setError(solveError instanceof Error ? solveError.message : 'Unexpected error while solving the route.');
     } finally {
       setIsSolving(false);
     }
@@ -227,18 +227,18 @@ export const App = () => {
       {desktop && (
         <div className="brand">
           <span className="brand__logo"><Route size={20} /></span>
-          <span className="brand__name">Tournée</span>
-          <button type="button" className="icon-button icon-button--ghost brand__settings" onClick={() => setSettingsOpen(true)} aria-label="Réglages">
+          <span className="brand__name">TSP Planner</span>
+          <button type="button" className="icon-button icon-button--ghost brand__settings" onClick={() => setSettingsOpen(true)} aria-label="Settings">
             <Settings2 size={20} />
           </button>
         </div>
       )}
       <div className="tabs" role="tablist">
         <button type="button" role="tab" aria-selected={tab === 'stops'} className={tab === 'stops' ? 'is-active' : ''} onClick={() => setTab('stops')}>
-          Étapes <span className="tabs__count">{points.length}</span>
+          Stops <span className="tabs__count">{points.length}</span>
         </button>
         <button type="button" role="tab" aria-selected={tab === 'result'} className={tab === 'result' ? 'is-active' : ''} onClick={() => setTab('result')} disabled={!solution}>
-          Itinéraire
+          Route
         </button>
       </div>
     </div>
@@ -248,17 +248,17 @@ export const App = () => {
     <div className="solve-bar">
       {missingKey && (
         <button type="button" className="key-hint" onClick={() => setSettingsOpen(true)}>
-          {mode.provider === 'google' ? 'Transports : clé Google requise' : 'Sans clé API : distances à vol d’oiseau'} · <u>Ajouter une clé</u>
+          {mode.provider === 'google' ? 'Transit needs a Google key' : 'No API key: straight-line distances'} · <u>Add a key</u>
         </button>
       )}
       <button type="button" className="button button--primary button--large button--block" onClick={solve} disabled={!canSolve}>
         {isSolving ? (
           <>
-            <Loader2 size={20} className="spin" /> Calcul en cours…
+            <Loader2 size={20} className="spin" /> Solving…
           </>
         ) : (
           <>
-            <Sparkles size={20} /> {points.length < 2 ? 'Ajoutez au moins 2 étapes' : 'Optimiser ' + points.length + ' étapes'}
+            <Sparkles size={20} /> {points.length < 2 ? 'Add at least 2 stops' : 'Optimise ' + points.length + ' stops'}
           </>
         )}
       </button>
@@ -267,7 +267,7 @@ export const App = () => {
 
   const resultFooter = (
     <button type="button" className="button button--block" onClick={() => setTab('stops')}>
-      Modifier les étapes
+      Edit stops
     </button>
   );
 
@@ -296,9 +296,9 @@ export const App = () => {
           <div className="topbar">
             <div className="brand brand--floating">
               <span className="brand__logo"><Route size={18} /></span>
-              <span className="brand__name">Tournée</span>
+              <span className="brand__name">TSP Planner</span>
             </div>
-            <button type="button" className="fab" onClick={() => setSettingsOpen(true)} aria-label="Réglages">
+            <button type="button" className="fab" onClick={() => setSettingsOpen(true)} aria-label="Settings">
               <Settings2 size={20} />
             </button>
           </div>
@@ -309,16 +309,16 @@ export const App = () => {
             className={'fab' + (addMode ? ' fab--active' : '')}
             onClick={() => setAddMode((value) => !value)}
             aria-pressed={addMode}
-            aria-label="Ajouter des étapes en touchant la carte"
-            title="Ajouter en touchant la carte"
+            aria-label="Add stops by tapping the map"
+            title="Add stops by tapping the map"
           >
             {addMode ? <X size={20} /> : <MousePointerClick size={20} />}
           </button>
-          <button type="button" className="fab" onClick={() => setFitRequest((count) => count + 1)} aria-label="Voir toutes les étapes" title="Voir toutes les étapes" disabled={!points.length}>
+          <button type="button" className="fab" onClick={() => setFitRequest((count) => count + 1)} aria-label="Show all stops" title="Show all stops" disabled={!points.length}>
             <Maximize2 size={20} />
           </button>
         </div>
-        {addMode && <div className="map-banner" style={desktop ? undefined : { top: 72 }}>Touchez la carte pour ajouter une étape</div>}
+        {addMode && <div className="map-banner" style={desktop ? undefined : { top: 72 }}>Tap the map to add a stop</div>}
       </div>
 
       <Sheet docked={desktop} snap={snap} onSnapChange={setSnap} onCoverChange={setSheetCover} header={header} footer={tab === 'stops' ? footer : resultFooter}>
@@ -333,15 +333,15 @@ export const App = () => {
             {error && <div className="callout callout--error">{error}</div>}
             {points.length === 0 ? (
               <div className="empty">
-                <p className="empty__title">Où passez-vous ?</p>
-                <p>Cherchez une adresse, touchez la carte avec <MousePointerClick size={14} /> (ou appui long), ou importez une liste de coordonnées.</p>
+                <p className="empty__title">Where are you going?</p>
+                <p>Search for an address, tap the map with <MousePointerClick size={14} /> (or long-press it), or import a list of coordinates.</p>
                 <button type="button" className="button" onClick={() => setImportOpen(true)}>
-                  <ClipboardPaste size={16} /> Importer une liste
+                  <ClipboardPaste size={16} /> Import a list
                 </button>
               </div>
             ) : (
               <>
-                <div className="modes" role="radiogroup" aria-label="Mode de déplacement">
+                <div className="modes" role="radiogroup" aria-label="Travel mode">
                   {TRAVEL_MODES.map((option) => {
                     const Icon = option.icon;
                     const active = option.value === settings.travelMode;
@@ -363,19 +363,19 @@ export const App = () => {
                 </div>
                 <div className="stops-toolbar">
                   <TripTypeSwitch isLoop={isLoop} onChange={setLoop} disabled={points.length < 2} />
-                  <button type="button" className="icon-button" onClick={() => setImportOpen(true)} aria-label="Importer une liste" title="Importer / exporter une liste">
+                  <button type="button" className="icon-button" onClick={() => setImportOpen(true)} aria-label="Import a list" title="Import / export a list">
                     <ClipboardPaste size={18} />
                   </button>
-                  <button type="button" className="icon-button" onClick={clearAll} aria-label="Tout effacer" title="Tout effacer">
+                  <button type="button" className="icon-button" onClick={clearAll} aria-label="Remove all stops" title="Remove all stops">
                     <Trash2 size={18} />
                   </button>
                 </div>
                 <p className="trip-summary">
                   {isLoop
                     ? startId
-                      ? 'Boucle : départ et retour à « ' + points.find((p) => p.id === startId)?.label + ' ».'
-                      : 'Boucle fermée : retour au point de départ (à choisir via ⋮ si besoin).'
-                    : 'Aller simple jusqu’à « ' + points.find((p) => p.id === endId)?.label + ' »' + (startId ? ', depuis « ' + points.find((p) => p.id === startId)?.label + ' ».' : ', départ libre.')}
+                      ? 'Round trip: starts and ends at “' + points.find((p) => p.id === startId)?.label + '”.'
+                      : 'Round trip back to the start (pick it with ⋮ if needed).'
+                    : 'One way to “' + points.find((p) => p.id === endId)?.label + '”' + (startId ? ', from “' + points.find((p) => p.id === startId)?.label + '”.' : ', from any stop.')}
                 </p>
                 <StopList
                   points={points}

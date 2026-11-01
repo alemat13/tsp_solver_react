@@ -10,13 +10,13 @@ export interface TravelModeOption {
 }
 
 export const TRAVEL_MODES: TravelModeOption[] = [
-  { value: 'driving-car', label: 'Voiture', icon: Car, provider: 'ors' },
-  { value: 'cycling-regular', label: 'Vélo', icon: Bike, provider: 'ors' },
-  { value: 'cycling-electric', label: 'VAE', icon: Zap, provider: 'ors' },
-  { value: 'foot-walking', label: 'À pied', icon: Footprints, provider: 'ors' },
-  { value: 'foot-hiking', label: 'Rando', icon: Mountain, provider: 'ors' },
-  { value: 'driving-hgv', label: 'Poids lourd', icon: Truck, provider: 'ors' },
-  { value: 'transit', label: 'Transports', icon: TramFront, provider: 'google' },
+  { value: 'driving-car', label: 'Car', icon: Car, provider: 'ors' },
+  { value: 'cycling-regular', label: 'Bike', icon: Bike, provider: 'ors' },
+  { value: 'cycling-electric', label: 'E-bike', icon: Zap, provider: 'ors' },
+  { value: 'foot-walking', label: 'Walk', icon: Footprints, provider: 'ors' },
+  { value: 'foot-hiking', label: 'Hike', icon: Mountain, provider: 'ors' },
+  { value: 'driving-hgv', label: 'Truck', icon: Truck, provider: 'ors' },
+  { value: 'transit', label: 'Transit', icon: TramFront, provider: 'google' },
 ];
 
 export const travelModeOption = (mode: TravelMode) => TRAVEL_MODES.find((option) => option.value === mode) || TRAVEL_MODES[0];

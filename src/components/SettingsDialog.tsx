@@ -26,33 +26,33 @@ interface SolverOption {
 const SOLVER_OPTIONS: SolverOption[] = [
   {
     value: 'auto',
-    title: 'Automatique',
-    badge: 'Recommandé',
+    title: 'Automatic',
+    badge: 'Recommended',
     description:
-      'Choisit pour vous. Jusqu’à ' + EXACT_POINT_LIMIT + ' étapes : solution parfaite en un instant. Jusqu’à ' +
-      AUTO_BRANCH_AND_CUT_LIMIT + ' étapes : solveur exact avec limite de temps. Au-delà : très bonne solution approchée en quelques secondes.',
+      'Picks for you. Up to ' + EXACT_POINT_LIMIT + ' stops: the perfect route, instantly. Up to ' +
+      AUTO_BRANCH_AND_CUT_LIMIT + ' stops: exact solver within the time limit below. Beyond that: a very good approximate route in a few seconds.',
   },
   {
     value: 'exact',
     title: 'Exact',
     description:
-      'Garantit le meilleur trajet possible (ou indique l’écart maximal s’il manque de temps). Peut être long au-delà de 80 étapes : la limite de temps ci-dessous s’applique.',
+      'Guarantees the best possible route (or tells you how far from it it may be if time runs out). Can be slow beyond 80 stops: the time limit below applies.',
   },
   {
     value: 'heuristic',
-    title: 'Rapide (heuristique)',
+    title: 'Fast (heuristic)',
     description:
-      'Construit un bon trajet puis l’améliore par petites permutations. Quasi instantané même avec des centaines d’étapes, généralement à quelques % de l’optimum.',
+      'Builds a good route, then improves it with small swaps. Near-instant even with hundreds of stops, usually within a few % of the best route.',
   },
   {
     value: 'genetic',
-    title: 'Génétique',
-    description: 'Fait « évoluer » une population de trajets. Surtout utile pour comparer ; l’automatique est presque toujours meilleur.',
+    title: 'Genetic',
+    description: '“Evolves” a population of routes. Mostly useful for comparison; Automatic is almost always better.',
   },
   {
     value: 'brute-force',
-    title: 'Force brute',
-    description: 'Essaie tous les ordres possibles. Exact mais explose vite : à réserver à moins de 10 étapes, pour vérifier.',
+    title: 'Brute force',
+    description: 'Tries every possible order. Exact but blows up fast: keep it under 10 stops, for checking.',
   },
 ];
 
@@ -68,94 +68,94 @@ const KeyGuide = ({ title, children }: { title: string; children: ReactNode }) =
 
 export const SettingsDialog = ({ open, onClose, settings, onChange, pointCount }: SettingsDialogProps) => (
   <Modal
-    title="Réglages"
+    title="Settings"
     open={open}
     onClose={onClose}
     footer={
       <button type="button" className="button button--primary button--block" onClick={onClose}>
-        Terminé
+        Done
       </button>
     }
   >
     <section className="form-section">
-      <h3>Optimiser pour</h3>
-      <div className="segmented" role="radiogroup" aria-label="Objectif">
+      <h3>Optimise for</h3>
+      <div className="segmented" role="radiogroup" aria-label="Objective">
         <button type="button" role="radio" aria-checked={settings.objective === 'distance'} className={settings.objective === 'distance' ? 'is-active' : ''} onClick={() => onChange({ objective: 'distance' })}>
-          La distance
+          Distance
         </button>
         <button type="button" role="radio" aria-checked={settings.objective === 'duration'} className={settings.objective === 'duration' ? 'is-active' : ''} onClick={() => onChange({ objective: 'duration' })}>
-          Le temps de trajet
+          Travel time
         </button>
       </div>
       <p className={'hint' + (settings.objective === 'duration' && !settings.orsApiKey && !settings.googleApiKey ? ' hint--warning' : '')}>
         {settings.objective === 'distance'
-          ? 'Le trajet le plus court en kilomètres.'
-          : 'Le trajet le plus rapide : peut faire un détour par une voie rapide. Nécessite une clé API ci-dessous.'}
+          ? 'The shortest route in kilometres.'
+          : 'The fastest route: may detour via a faster road. Needs an API key below.'}
       </p>
     </section>
 
     <section className="form-section">
       <h3>
-        <KeyRound size={14} /> Clés API
+        <KeyRound size={14} /> API keys
       </h3>
       <p className="hint">
-        Sans clé, l’app fonctionne mais mesure les distances à vol d’oiseau. Avec une clé, elle utilise les vraies routes, les temps de
-        trajet et trace l’itinéraire exact. Les clés restent uniquement dans ce navigateur.
+        Without a key the app still works, but measures straight-line distances. With a key it uses real roads and travel times,
+        and draws the actual route. Keys are stored only in this browser.
       </p>
 
       <label className="field">
         <span className="field__label">OpenRouteService</span>
-        <span className="hint">Voiture, poids lourd, vélo, VAE, marche, randonnée. Gratuit.</span>
-        <input type="password" value={settings.orsApiKey} placeholder="Coller la clé ici" autoComplete="off" spellCheck={false} onChange={(event) => onChange({ orsApiKey: event.target.value.trim() })} />
+        <span className="hint">Car, truck, bike, e-bike, walking, hiking. Free.</span>
+        <input type="password" value={settings.orsApiKey} placeholder="Paste your key here" autoComplete="off" spellCheck={false} onChange={(event) => onChange({ orsApiKey: event.target.value.trim() })} />
       </label>
-      <KeyGuide title="Comment obtenir une clé OpenRouteService ?">
+      <KeyGuide title="How do I get an OpenRouteService key?">
         <ol>
           <li>
-            Créez un compte gratuit sur{' '}
+            Create a free account at{' '}
             <a href="https://account.heigit.org/signup" target="_blank" rel="noreferrer">
               account.heigit.org <ExternalLink size={12} />
             </a>{' '}
-            (HeiGIT gère OpenRouteService).
+            (HeiGIT runs OpenRouteService).
           </li>
-          <li>Confirmez votre adresse e-mail puis connectez-vous.</li>
-          <li>Dans le tableau de bord, créez une clé avec l’offre gratuite « Standard ».</li>
-          <li>Copiez la clé (une longue suite de caractères) et collez-la dans le champ ci-dessus.</li>
+          <li>Confirm your email address, then sign in.</li>
+          <li>In the dashboard, create a key on the free “Standard” plan.</li>
+          <li>Copy the key (a long string of characters) and paste it into the field above.</li>
         </ol>
-        <p>L’offre gratuite suffit largement pour un usage personnel (plusieurs centaines de calculs par jour).</p>
+        <p>The free plan is plenty for personal use (several hundred calculations per day).</p>
       </KeyGuide>
 
       <label className="field">
         <span className="field__label">Google Maps</span>
-        <span className="hint">Uniquement pour les transports en commun. Demande une carte bancaire, avec un crédit mensuel gratuit.</span>
-        <input type="password" value={settings.googleApiKey} placeholder="Coller la clé ici" autoComplete="off" spellCheck={false} onChange={(event) => onChange({ googleApiKey: event.target.value.trim() })} />
+        <span className="hint">Only needed for public transit. Requires a credit card, with a free monthly credit.</span>
+        <input type="password" value={settings.googleApiKey} placeholder="Paste your key here" autoComplete="off" spellCheck={false} onChange={(event) => onChange({ googleApiKey: event.target.value.trim() })} />
       </label>
-      <KeyGuide title="Comment obtenir une clé Google Maps ?">
+      <KeyGuide title="How do I get a Google Maps key?">
         <ol>
           <li>
-            Ouvrez la{' '}
+            Open the{' '}
             <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">
-              console Google Cloud <ExternalLink size={12} />
+              Google Cloud console <ExternalLink size={12} />
             </a>{' '}
-            et créez un projet.
+            and create a project.
           </li>
-          <li>Activez la facturation sur ce projet (un crédit gratuit mensuel couvre un usage personnel).</li>
+          <li>Enable billing on the project (the free monthly credit covers personal use).</li>
           <li>
-            Dans « API et services », activez <strong>Routes API</strong>.
+            Under “APIs &amp; Services”, enable the <strong>Routes API</strong>.
           </li>
-          <li>Dans « Identifiants », créez une clé API, puis copiez-la ici.</li>
-          <li>Conseillé : restreignez la clé à la Routes API et à l’adresse de ce site.</li>
+          <li>Under “Credentials”, create an API key and paste it here.</li>
+          <li>Recommended: restrict the key to the Routes API and to this site’s address.</li>
         </ol>
         <p>
           <a href="https://developers.google.com/maps/documentation/routes/get-api-key" target="_blank" rel="noreferrer">
-            Documentation officielle <ExternalLink size={12} />
+            Official documentation <ExternalLink size={12} />
           </a>
         </p>
       </KeyGuide>
     </section>
 
     <section className="form-section">
-      <h3>Algorithme</h3>
-      <div className="choices" role="radiogroup" aria-label="Algorithme">
+      <h3>Algorithm</h3>
+      <div className="choices" role="radiogroup" aria-label="Algorithm">
         {SOLVER_OPTIONS.map((option) => {
           const active = settings.solverMode === option.value;
           return (
@@ -175,7 +175,7 @@ export const SettingsDialog = ({ open, onClose, settings, onChange, pointCount }
                 </span>
                 <span className="choice__description">
                   {option.description}
-                  {option.value === 'brute-force' && pointCount >= 2 && ' Pour vos ' + pointCount + ' étapes : environ ' + describeBruteForceEstimate(pointCount) + '.'}
+                  {option.value === 'brute-force' && pointCount >= 2 && ' For your ' + pointCount + ' stops: about ' + describeBruteForceEstimate(pointCount) + '.'}
                 </span>
               </span>
             </button>
@@ -185,7 +185,7 @@ export const SettingsDialog = ({ open, onClose, settings, onChange, pointCount }
 
       {(settings.solverMode === 'auto' || settings.solverMode === 'exact') && (
         <label className="field">
-          <span className="field__label">Temps max du solveur exact : {settings.exactTimeLimitSeconds} s</span>
+          <span className="field__label">Exact solver time limit: {settings.exactTimeLimitSeconds} s</span>
           <input
             type="range"
             min={5}
@@ -195,8 +195,8 @@ export const SettingsDialog = ({ open, onClose, settings, onChange, pointCount }
             onChange={(event) => onChange({ exactTimeLimitSeconds: Number(event.target.value) })}
           />
           <span className="hint">
-            Pour les grandes tournées. Passé ce délai, vous obtenez le meilleur trajet trouvé et l’écart maximal possible avec le trajet
-            parfait (ex. « à 0,8 % max de l’optimum »).
+            For large trips. After this limit you get the best route found so far and how far it can be from the perfect one
+            (e.g. “Within 0.8% of optimal”).
           </span>
         </label>
       )}

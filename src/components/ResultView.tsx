@@ -26,9 +26,9 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
   const googleLinks = buildGoogleMapsLinks(route, travelMode);
 
   const exportRoute = (format: 'gpx' | 'kml') => {
-    const data = { name: 'Itinéraire (' + route.length + ' étapes)', stops: route, geometry: routeCoordinates };
-    if (format === 'gpx') downloadTextFile('itineraire.gpx', buildGpx(data), 'application/gpx+xml');
-    else downloadTextFile('itineraire.kml', buildKml(data), 'application/vnd.google-earth.kml+xml');
+    const data = { name: 'Route (' + route.length + ' stops)', stops: route, geometry: routeCoordinates };
+    if (format === 'gpx') downloadTextFile('route.gpx', buildGpx(data), 'application/gpx+xml');
+    else downloadTextFile('route.kml', buildKml(data), 'application/vnd.google-earth.kml+xml');
   };
 
   return (
@@ -40,12 +40,12 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
         </div>
         {!!result.totalDuration && (
           <div className="stat">
-            <span className="stat__label">Durée</span>
+            <span className="stat__label">Duration</span>
             <span className="stat__value">{formatDuration(result.totalDuration)}</span>
           </div>
         )}
         <div className="stat">
-          <span className="stat__label">Étapes</span>
+          <span className="stat__label">Stops</span>
           <span className="stat__value">{isLoop ? route.length - 1 : route.length}</span>
         </div>
       </div>
@@ -55,7 +55,7 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
         <span>
           <strong>{optimality.label}</strong>
           <small>
-            {STRATEGY_LABELS[result.strategy]} · {matrixProvider || 'distances inconnues'}
+            {STRATEGY_LABELS[result.strategy]} · {matrixProvider || 'unknown distances'}
           </small>
         </span>
       </div>
@@ -63,7 +63,7 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
       <div className="actions-row">
         {googleLinks.map((link, index) => (
           <a key={link} className="button button--primary" href={link} target="_blank" rel="noreferrer">
-            <ExternalLink size={16} /> {googleLinks.length > 1 ? 'Maps ' + (index + 1) + '/' + googleLinks.length : 'Ouvrir dans Google Maps'}
+            <ExternalLink size={16} /> {googleLinks.length > 1 ? 'Maps ' + (index + 1) + '/' + googleLinks.length : 'Open in Google Maps'}
           </a>
         ))}
         <button type="button" className="button" onClick={() => exportRoute('gpx')}>
@@ -77,7 +77,7 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
       {warnings.length > 0 && (
         <details className="callout callout--warning">
           <summary>
-            <AlertTriangle size={16} /> {warnings.length === 1 ? '1 avertissement' : warnings.length + ' avertissements'}
+            <AlertTriangle size={16} /> {warnings.length === 1 ? '1 warning' : warnings.length + ' warnings'}
             <ChevronDown size={16} className="callout__chevron" />
           </summary>
           <ul>
@@ -99,8 +99,8 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
                 <span className={'timeline__dot' + (isFirst ? ' timeline__dot--start' : isLast ? ' timeline__dot--end' : '')}>{isLast && isLoop ? '↺' : index + 1}</span>
                 <span className="timeline__label">
                   {point.label}
-                  {isFirst && <small>Départ</small>}
-                  {isLast && <small>{isLoop ? 'Retour au départ' : 'Arrivée'}</small>}
+                  {isFirst && <small>Start</small>}
+                  {isLast && <small>{isLoop ? 'Back to start' : 'End'}</small>}
                 </span>
               </button>
               {!isLast && leg && (
@@ -117,7 +117,7 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
       {notes.length > 0 && (
         <details className="callout">
           <summary>
-            <Info size={16} /> Détails du calcul
+            <Info size={16} /> Solver details
             <ChevronDown size={16} className="callout__chevron" />
           </summary>
           <ul>
