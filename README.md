@@ -21,7 +21,7 @@ This project provides an interactive interface for users to define a set of "cit
 
 This application integrates with external mapping and routing services that require API keys:
 
-*   **OpenRouteService API key**: Required for driving, walking, and cycling modes. Get your free key from a HeiGIT account at [account.heigit.org/signup](https://account.heigit.org/signup) (openrouteservice.org itself may be offline; the API at `api.openrouteservice.org` keeps working).
+*   **OpenRouteService API key**: Required for driving, walking, and cycling modes. Get your free key from a HeiGIT account at [account.heigit.org/signup](https://account.heigit.org/signup) (the app calls the API at `api.heigit.org/openrouteservice`; the old `api.openrouteservice.org` host shuts down in November 2026).
 *   **Google Maps API key**: Required for transit mode (public transport). Get your key at [Google Cloud Console](https://console.cloud.google.com/).
 
 Both API keys are stored locally in your browser and never sent to any server other than the respective API providers.
