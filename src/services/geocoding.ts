@@ -4,6 +4,8 @@
  * - Without a key: OpenStreetMap Nominatim. Its usage policy forbids autocomplete, so the UI
  *   only queries it on explicit submit (Enter / search button), at most about once per second.
  */
+import { geocodeCache } from './apiCache';
+
 export interface GeocodeResult {
   label: string;
   detail?: string;
@@ -15,6 +17,17 @@ export interface GeocodeResult {
 const ORS_AUTOCOMPLETE_URLS = ['https://api.heigit.org/pelias/v1/autocomplete', 'https://api.openrouteservice.org/geocode/autocomplete'];
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse';
+
+const normalise = (query: string) => query.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/** Search results are cached (30 days) so retyping a query costs no request. Failures are not cached. */
+const cached = async (key: string, load: () => Promise<GeocodeResult[]>): Promise<GeocodeResult[]> => {
+  const hit = (await geocodeCache.get(key)) as GeocodeResult[] | undefined;
+  if (hit) return hit;
+  const results = await load();
+  await geocodeCache.set(key, results);
+  return results;
+};
 
 const language = () => (typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en');
 
@@ -34,11 +47,15 @@ export const searchPlaces = async (query: string, apiKey: string, focus?: [numbe
   }
 };
 
-export const searchWithOrs = async (query: string, apiKey: string, focus?: [number, number], signal?: AbortSignal): Promise<GeocodeResult[]> => {
+export const searchWithOrs = (query: string, apiKey: string, focus?: [number, number], signal?: AbortSignal) =>
+  cached('ors|' + normalise(query) + '|' + (focus ? focus[0].toFixed(2) + ',' + focus[1].toFixed(2) : ''), () => fetchOrsResults(query, apiKey, focus, signal));
+
+const fetchOrsResults = async (query: string, apiKey: string, focus?: [number, number], signal?: AbortSignal): Promise<GeocodeResult[]> => {
   const params = new URLSearchParams({ api_key: apiKey, text: query, size: '6' });
   if (focus) {
-    params.set('focus.point.lat', focus[0].toFixed(4));
-    params.set('focus.point.lon', focus[1].toFixed(4));
+    // Rounded to ~1 km so that nearby searches share cache entries.
+    params.set('focus.point.lat', focus[0].toFixed(2));
+    params.set('focus.point.lon', focus[1].toFixed(2));
   }
   let body: { features?: OrsFeature[] } | undefined;
   let lastStatus = 0;
@@ -80,7 +97,10 @@ const splitDisplayName = (item: NominatimItem): { label: string; detail?: string
   return { label, detail: rest.slice(0, 3).join(', ') || undefined };
 };
 
-export const searchWithNominatim = async (query: string, signal?: AbortSignal): Promise<GeocodeResult[]> => {
+export const searchWithNominatim = (query: string, signal?: AbortSignal) =>
+  cached('nominatim|' + language() + '|' + normalise(query), () => fetchNominatimResults(query, signal));
+
+const fetchNominatimResults = async (query: string, signal?: AbortSignal): Promise<GeocodeResult[]> => {
   const params = new URLSearchParams({ q: query, format: 'jsonv2', limit: '6', 'accept-language': language() });
   const response = await fetch(NOMINATIM_SEARCH_URL + '?' + params.toString(), { signal });
   if (!response.ok) throw new Error('Search unavailable (Nominatim ' + response.status + ').');
@@ -90,6 +110,15 @@ export const searchWithNominatim = async (query: string, signal?: AbortSignal): 
 
 /** Best-effort name for a point picked on the map. Returns undefined on any failure. */
 export const reverseGeocode = async (latitude: number, longitude: number): Promise<string | undefined> => {
+  const key = 'reverse|' + language() + '|' + latitude.toFixed(5) + ',' + longitude.toFixed(5);
+  const known = (await geocodeCache.get(key)) as string | undefined;
+  if (known) return known;
+  const name = await fetchReverseName(latitude, longitude);
+  if (name) await geocodeCache.set(key, name);
+  return name;
+};
+
+const fetchReverseName = async (latitude: number, longitude: number): Promise<string | undefined> => {
   try {
     const params = new URLSearchParams({
       lat: String(latitude),

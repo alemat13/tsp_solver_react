@@ -1,5 +1,6 @@
-import { ReactNode } from 'react';
-import { ChevronDown, ExternalLink, KeyRound } from 'lucide-react';
+import { ReactNode, useEffect, useState } from 'react';
+import { ChevronDown, Database, ExternalLink, KeyRound } from 'lucide-react';
+import { clearApiCache, countApiCacheEntries } from '../services/apiCache';
 import { Modal } from './Modal';
 import { Settings } from '../state/usePersistentState';
 import { SolverMode } from '../types';
@@ -65,6 +66,44 @@ const KeyGuide = ({ title, children }: { title: string; children: ReactNode }) =
     {children}
   </details>
 );
+
+const CacheSection = ({ open }: { open: boolean }) => {
+  const [count, setCount] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    countApiCacheEntries().then((value) => {
+      if (!cancelled) setCount(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const clear = async () => {
+    await clearApiCache();
+    setCount(await countApiCacheEntries());
+  };
+
+  return (
+    <section className="form-section">
+      <h3>
+        <Database size={14} /> Saved responses
+      </h3>
+      <p className="hint">
+        Distances, routes and searches already fetched are reused instead of being requested (and billed) again. Adding a stop
+        only fetches what is new. Road data is kept in this browser for 30 days; Google transit times are kept only until you
+        close the page, as Google’s terms require.
+      </p>
+      <div className="cache-row">
+        <span className="hint">{count === undefined ? 'Counting…' : count === 0 ? 'Nothing saved yet.' : count.toLocaleString('en') + ' saved entries.'}</span>
+        <button type="button" className="button" onClick={clear} disabled={!count}>
+          Clear
+        </button>
+      </div>
+    </section>
+  );
+};
 
 export const SettingsDialog = ({ open, onClose, settings, onChange, pointCount }: SettingsDialogProps) => (
   <Modal
@@ -201,5 +240,7 @@ export const SettingsDialog = ({ open, onClose, settings, onChange, pointCount }
         </label>
       )}
     </section>
+
+    <CacheSection open={open} />
   </Modal>
 );

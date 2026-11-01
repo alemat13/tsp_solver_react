@@ -113,3 +113,41 @@ describe('Google Maps Service (Routes API)', () => {
     expect(empty.warnings[0]).toContain('straight');
   });
 });
+
+describe('Google Maps Service caching', () => {
+  const grid = (n: number) => Array.from({ length: n }, (_, i) => ({ id: 'g' + i, label: 'G' + i, latitude: 48.8 + i / 100, longitude: 2.3 }));
+
+  beforeEach(() => {
+    mockFetch().mockReset();
+    mockFetch().mockImplementation(async (url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body);
+      if (url.includes('computeRoutes')) return { ok: true, json: async () => ({ routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC' } }] }) };
+      const elements = [];
+      for (let o = 0; o < body.origins.length; o += 1) {
+        for (let d = 0; d < body.destinations.length; d += 1) elements.push(element(o, d, 100, 60));
+      }
+      return { ok: true, json: async () => elements };
+    });
+  });
+
+  test('only bills the new row and column when a stop is added', async () => {
+    await fetchGoogleMatrix({ apiKey: 'k', profile: 'transit', points: grid(9) });
+    mockFetch().mockClear();
+    const result = await fetchGoogleMatrix({ apiKey: 'k', profile: 'transit', points: grid(10) });
+    const elements = mockFetch().mock.calls.reduce((sum, [, init]) => {
+      const body = JSON.parse(init.body);
+      return sum + body.origins.length * body.destinations.length;
+    }, 0);
+    expect(elements).toBe(10 + 9); // instead of 100
+    expect(result.data.distances[9][0]).toBe(100);
+    expect(result.data.durations?.[0][9]).toBe(60);
+  });
+
+  test('reuses transit legs already fetched', async () => {
+    const points = grid(3);
+    await fetchGoogleRouteGeometry({ apiKey: 'k', profile: 'transit', points });
+    mockFetch().mockClear();
+    await fetchGoogleRouteGeometry({ apiKey: 'k', profile: 'transit', points: [...points, grid(4)[3]] });
+    expect(mockFetch()).toHaveBeenCalledTimes(1); // only the new last leg
+  });
+});
