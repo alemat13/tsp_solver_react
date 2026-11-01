@@ -21,7 +21,7 @@ This project provides an interactive interface for users to define a set of "cit
 
 This application integrates with external mapping and routing services that require API keys:
 
-*   **OpenRouteService API key**: Required for driving, walking, and cycling modes. Get your free key at [openrouteservice.org](https://openrouteservice.org/).
+*   **OpenRouteService API key**: Required for driving, walking, and cycling modes. Get your free key from a HeiGIT account at [account.heigit.org/signup](https://account.heigit.org/signup) (the app calls the API at `api.heigit.org/openrouteservice`; the old `api.openrouteservice.org` host shuts down in November 2026).
 *   **Google Maps API key**: Required for transit mode (public transport). Get your key at [Google Cloud Console](https://console.cloud.google.com/).
 
 Both API keys are stored locally in your browser and never sent to any server other than the respective API providers.
@@ -49,9 +49,9 @@ To enable routing features that use real-world location data, you need to config
    - Create an API key and copy it
 
 2. **OpenRouteService API key** (for driving/walking/cycling modes):
-   - Visit [OpenRouteService](https://openrouteservice.org/)
-   - Sign up for a free account
-   - Navigate to your dashboard and copy your API key
+   - Create a free HeiGIT account at [account.heigit.org/signup](https://account.heigit.org/signup) (it comes with a free Standard key)
+   - Open the [HeiGIT dashboard](https://account.heigit.org) and copy your API key
+   - API reference: [ORS documentation](https://giscience.github.io/openrouteservice/)
 
 Once you have your API keys, they will be stored in your browser's localStorage when you enter them in the application settings.
 

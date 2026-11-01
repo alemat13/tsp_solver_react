@@ -342,8 +342,8 @@ export const App = () => {
       </main>
       <footer className="app__footer">
         <p>
-          Need an API key? Create one at
-          <a href="https://openrouteservice.org/" target="_blank" rel="noreferrer"> openrouteservice.org</a>.
+          Need an openrouteservice API key? Create a free HeiGIT account at
+          <a href="https://account.heigit.org/signup" target="_blank" rel="noreferrer"> account.heigit.org</a>.
         </p>
       </footer>
     </div>
