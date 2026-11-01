@@ -62,4 +62,4 @@ This file contains the logic for interacting with the OpenRouteService API. It i
     ```
 3.  Open your browser to `http://localhost:5173` (or whatever port Vite assigns).
 
-To use the routing features, you will need to obtain an API key from [OpenRouteService](https://openrouteservice.org/) and enter it into the application's options form.
+To use the routing features, you will need to obtain an API key from a free HeiGIT account ([account.heigit.org/signup](https://account.heigit.org/signup)) and enter it into the application's options form.
