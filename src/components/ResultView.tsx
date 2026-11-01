@@ -1,11 +1,14 @@
 import { AlertTriangle, CheckCircle2, ChevronDown, Download, ExternalLink, Gauge, Info } from 'lucide-react';
-import { SolveResult } from '../types';
+import { SolveResult, TransitLeg } from '../types';
+import { TransitSteps } from './TransitSteps';
 import { buildGoogleMapsLinks, buildGpx, buildKml, downloadTextFile } from '../utils/exportRoute';
 import { describeOptimality, formatDistance, formatDuration, STRATEGY_LABELS } from '../ui/format';
 
 export interface Leg {
   distance?: number;
   duration?: number;
+  /** Step-by-step public-transport directions (transit mode with a Google key). */
+  transit?: TransitLeg;
 }
 
 export interface ResultViewProps {
@@ -88,6 +91,10 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
         </details>
       )}
 
+      {legs.some((leg) => leg.transit) && (
+        <p className="transit-note">Transit times are for leaving now; each leg is planned on its own. Tap a leg for lines and stops.</p>
+      )}
+
       <ol className="timeline">
         {route.map((point, index) => {
           const isFirst = index === 0;
@@ -107,6 +114,7 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
                 <div className="timeline__leg">
                   {formatDistance(leg.distance)}
                   {leg.duration ? ' · ' + formatDuration(leg.duration) : ''}
+                  {leg.transit && <TransitSteps leg={leg.transit} />}
                 </div>
               )}
             </li>

@@ -958,6 +958,157 @@ svg.search__trailing {
   font-variant-numeric: tabular-nums;
 }
 
+/* ───────── Transit directions ───────── */
+
+.transit-note {
+  margin: 0 0 8px;
+  color: var(--text-3);
+  font-size: 0.78rem;
+}
+
+.transit {
+  margin-top: 6px;
+  color: var(--text-2);
+}
+
+.transit__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.transit__summary::-webkit-details-marker {
+  display: none;
+}
+
+.transit__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.transit__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.transit__sep {
+  color: var(--text-3);
+}
+
+.transit__times {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.transit__chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform 0.15s;
+}
+
+.transit[open] .transit__chevron {
+  transform: rotate(180deg);
+}
+
+.line-badge,
+.walk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.walk-badge {
+  border-color: transparent;
+  background: none;
+  color: var(--text-3);
+  font-weight: 600;
+  padding: 0 2px;
+}
+
+.transit__steps {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.transit__step {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--text-2);
+  font-size: 0.82rem;
+}
+
+.transit__step--walk {
+  align-items: center;
+  color: var(--text-3);
+}
+
+.transit__icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.transit__ride {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.transit__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.transit__headsign {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.transit__stop {
+  display: flex;
+  gap: 8px;
+  color: var(--text);
+}
+
+.transit__stop time {
+  flex: none;
+  min-width: 3.2em;
+  font-weight: 700;
+}
+
+.transit__meta {
+  color: var(--text-3);
+}
+
+.transit__meta a {
+  color: inherit;
+}
+
 /* ───────── Callouts ───────── */
 
 .callout {

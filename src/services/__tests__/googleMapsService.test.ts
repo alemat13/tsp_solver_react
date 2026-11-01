@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRouteGeometry } from '../googleMapsService';
+import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRouteGeometry, parseTransitLeg } from '../googleMapsService';
 import { CoordinatePoint } from '../../types';
 
 globalThis.fetch = vi.fn();
@@ -149,5 +149,89 @@ describe('Google Maps Service caching', () => {
     mockFetch().mockClear();
     await fetchGoogleRouteGeometry({ apiKey: 'k', profile: 'transit', points: [...points, grid(4)[3]] });
     expect(mockFetch()).toHaveBeenCalledTimes(1); // only the new last leg
+  });
+});
+
+const transitLeg = {
+  duration: '1500s',
+  distanceMeters: 5200,
+  steps: [
+    { travelMode: 'WALK', staticDuration: '120s', distanceMeters: 150 },
+    { travelMode: 'WALK', staticDuration: '60s', distanceMeters: 50 },
+    {
+      travelMode: 'TRANSIT',
+      staticDuration: '900s',
+      distanceMeters: 4800,
+      transitDetails: {
+        stopDetails: {
+          departureStop: { name: 'Bir-Hakeim' },
+          arrivalStop: { name: 'Palais Royal' },
+          departureTime: '2026-11-01T12:05:00Z',
+          arrivalTime: '2026-11-01T12:20:00Z',
+        },
+        localizedValues: { departureTime: { time: { text: '13:05' } }, arrivalTime: { time: { text: '13:20' } } },
+        headsign: 'Nation',
+        stopCount: 9,
+        transitLine: {
+          name: 'Métro 6',
+          nameShort: '6',
+          color: '#6eca97',
+          textColor: '#000000',
+          agencies: [{ name: 'RATP', uri: 'https://www.ratp.fr/' }],
+          vehicle: { type: 'SUBWAY', name: { text: 'Subway' } },
+        },
+      },
+    },
+    { travelMode: 'WALK', staticDuration: '240s', distanceMeters: 200 },
+  ],
+};
+
+describe('Google transit directions', () => {
+  beforeEach(() => {
+    mockFetch().mockReset();
+  });
+
+  test('parseTransitLeg extracts rides and merges walking steps', () => {
+    const leg = parseTransitLeg(transitLeg);
+    expect(leg?.duration).toBe(1500);
+    expect(leg?.steps.map((step) => step.kind)).toEqual(['walk', 'transit', 'walk']);
+    expect(leg?.steps[0]).toMatchObject({ duration: 180, distance: 200 });
+    expect(leg?.steps[1].ride).toMatchObject({
+      line: '6',
+      vehicleType: 'SUBWAY',
+      headsign: 'Nation',
+      departureStop: 'Bir-Hakeim',
+      arrivalStop: 'Palais Royal',
+      departureText: '13:05',
+      arrivalText: '13:20',
+      stopCount: 9,
+      agency: 'RATP',
+      color: '#6eca97',
+    });
+    expect(parseTransitLeg(undefined)).toBeUndefined();
+  });
+
+  test('fetchRouteGeometry returns the directions of each leg', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      json: async () => ({ routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC' }, legs: [transitLeg] }] }),
+    });
+    const result = await fetchGoogleRouteGeometry({ apiKey: 'k', profile: 'transit', points: mockPoints });
+    expect(result.transitLegs?.[0]?.steps[1].ride?.line).toBe('6');
+    const [, init] = mockFetch().mock.calls[0];
+    expect(init.headers['X-Goog-FieldMask']).toContain('routes.legs.steps.transitDetails');
+
+    // Directions are served from the in-memory cache while fresh.
+    mockFetch().mockClear();
+    const again = await fetchGoogleRouteGeometry({ apiKey: 'k', profile: 'transit', points: mockPoints });
+    expect(mockFetch()).not.toHaveBeenCalled();
+    expect(again.transitLegs?.[0]?.steps).toHaveLength(3);
+  });
+
+  test('only the polyline is persisted; directions stay in memory', async () => {
+    const { googleLegCache, googleTransitLegCache } = await import('../apiCache');
+    expect(googleLegCache.options.persist).toBe(true);
+    expect(googleTransitLegCache.options.persist).toBe(false);
+    expect(googleTransitLegCache.options.ttlMs).toBeLessThanOrEqual(30 * 60 * 1000);
   });
 });

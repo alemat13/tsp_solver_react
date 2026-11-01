@@ -52,3 +52,46 @@ export interface SolveResult {
 }
 
 export type SolverMode = 'auto' | 'exact' | 'brute-force' | 'heuristic' | 'genetic';
+
+/** One public-transport ride within a leg. */
+export interface TransitRide {
+  /** Short line name shown on vehicles ("42", "M1"); falls back to the long name. */
+  line: string;
+  lineName?: string;
+  /** Line colour (#rrggbb) and text colour, when the agency publishes them. */
+  color?: string;
+  textColor?: string;
+  /** Google vehicle type: BUS, SUBWAY, TRAM, RAIL, HEAVY_RAIL, FERRY, ... */
+  vehicleType?: string;
+  /** Localised vehicle name ("Bus", "Subway"). */
+  vehicleName?: string;
+  headsign?: string;
+  agency?: string;
+  agencyUrl?: string;
+  departureStop?: string;
+  arrivalStop?: string;
+  /** RFC 3339 timestamps. */
+  departureTime?: string;
+  arrivalTime?: string;
+  /** Local clock times as Google formats them for the stop's time zone ("1:05 PM", "13:05"). */
+  departureText?: string;
+  arrivalText?: string;
+  stopCount?: number;
+}
+
+export interface TransitStep {
+  kind: 'walk' | 'transit';
+  /** Seconds. */
+  duration?: number;
+  /** Metres. */
+  distance?: number;
+  ride?: TransitRide;
+}
+
+export interface TransitLeg {
+  /** Seconds, including waits. */
+  duration?: number;
+  /** Metres. */
+  distance?: number;
+  steps: TransitStep[];
+}

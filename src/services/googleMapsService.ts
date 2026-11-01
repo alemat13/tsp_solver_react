@@ -1,6 +1,6 @@
-import { CoordinatePoint, MatrixData, TravelMode } from '../types';
+import { CoordinatePoint, MatrixData, TransitLeg, TransitRide, TransitStep, TravelMode } from '../types';
 import { buildHaversineMatrix } from '../utils/distance';
-import { coordinateKey, googleLegCache, googleMatrixCache, PairValue } from './apiCache';
+import { coordinateKey, googleLegCache, googleMatrixCache, googleTransitLegCache, PairValue } from './apiCache';
 import { readCachedMatrix, tileBlock } from './matrixCache';
 
 /**
@@ -42,6 +42,8 @@ export interface RouteGeometryResult {
   coordinates: [number, number][];
   warnings: string[];
   error?: string;
+  /** Step-by-step transit directions, one entry per leg (undefined when Google has none). */
+  transitLegs?: (TransitLeg | undefined)[];
 }
 
 const FALLBACK_WARNING = 'Google Maps fallback to Haversine distances.';
@@ -199,9 +201,76 @@ const decodePolyline = (str: string, precision = 5): [number, number][] => {
   return coordinates;
 };
 
+const LEG_FIELD_MASK = [
+  'routes.polyline.encodedPolyline',
+  'routes.legs.duration',
+  'routes.legs.distanceMeters',
+  'routes.legs.steps.travelMode',
+  'routes.legs.steps.staticDuration',
+  'routes.legs.steps.distanceMeters',
+  'routes.legs.steps.transitDetails',
+].join(',');
+
+const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
+const number = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const parseRide = (details: any): TransitRide => {
+  const line = details?.transitLine ?? {};
+  const agency = Array.isArray(line.agencies) ? line.agencies[0] : undefined;
+  const stops = details?.stopDetails ?? {};
+  const local = details?.localizedValues ?? {};
+  return {
+    line: text(line.nameShort) ?? text(line.name) ?? text(details?.tripShortText) ?? text(line.vehicle?.name?.text) ?? 'Transit',
+    lineName: text(line.name),
+    color: text(line.color),
+    textColor: text(line.textColor),
+    vehicleType: text(line.vehicle?.type),
+    vehicleName: text(line.vehicle?.name?.text),
+    headsign: text(details?.headsign),
+    agency: text(agency?.name),
+    agencyUrl: text(agency?.uri),
+    departureStop: text(stops.departureStop?.name),
+    arrivalStop: text(stops.arrivalStop?.name),
+    departureTime: text(stops.departureTime),
+    arrivalTime: text(stops.arrivalTime),
+    departureText: text(local.departureTime?.time?.text),
+    arrivalText: text(local.arrivalTime?.time?.text),
+    stopCount: number(details?.stopCount),
+  };
+};
+
+/** Turns a Routes API leg into rides and walks; consecutive walking steps are merged. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const parseTransitLeg = (leg: any): TransitLeg | undefined => {
+  if (!leg || !Array.isArray(leg.steps)) return undefined;
+  const steps: TransitStep[] = [];
+  for (const step of leg.steps) {
+    const duration = parseDuration(step?.staticDuration);
+    const distance = number(step?.distanceMeters);
+    if (step?.travelMode === 'TRANSIT' && step.transitDetails) {
+      steps.push({ kind: 'transit', duration, distance, ride: parseRide(step.transitDetails) });
+      continue;
+    }
+    const previous = steps[steps.length - 1];
+    if (previous?.kind === 'walk') {
+      previous.duration = (previous.duration ?? 0) + (duration ?? 0);
+      previous.distance = (previous.distance ?? 0) + (distance ?? 0);
+    } else {
+      steps.push({ kind: 'walk', duration, distance });
+    }
+  }
+  return { duration: parseDuration(leg.duration), distance: number(leg.distanceMeters), steps };
+};
+
 /**
- * Route geometry for the ordered stops. Transit routes cannot have intermediate waypoints, so
- * each leg is requested separately; a leg without a transit route is drawn as a straight line.
+ * Route geometry and step-by-step transit directions for the ordered stops. Transit routes
+ * cannot have intermediate waypoints, so each leg is requested separately (departing now); a
+ * leg without a transit route is drawn as a straight line.
+ *
+ * Caching follows the Google terms: the leg polyline (lat/lng only) is persisted for at most 30
+ * days, while the directions (lines, stops, times) stay in memory for a few minutes only, which
+ * also keeps the timetable reasonably fresh.
  */
 export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<RouteGeometryResult> => {
   const { apiKey, points } = params;
@@ -213,41 +282,53 @@ export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<R
     return { coordinates: straight, warnings: ['Missing Google API key – using straight‑line geometry.'] };
   }
 
-  // Each leg is cached on its own (as an encoded polyline, i.e. lat/lng values only, kept at most
-  // 30 days as the Google terms allow), so reordering stops reuses the legs already fetched.
-  const legs = points.slice(0, -1).map((origin, index) => async () => {
+  type LegResult = { polyline?: string; details?: TransitLeg; error?: string };
+  const legs = points.slice(0, -1).map((origin, index) => async (): Promise<LegResult> => {
     const destination = points[index + 1];
     const cacheKey = coordinateKey(origin.latitude, origin.longitude) + '|' + coordinateKey(destination.latitude, destination.longitude);
-    const cached = await googleLegCache.get(cacheKey);
-    if (cached !== undefined) return cached ?? undefined;
-    const payload = await postJson(ROUTES_URL, apiKey, 'routes.polyline.encodedPolyline', {
-      origin: toWaypoint(origin).waypoint,
-      destination: toWaypoint(destination).waypoint,
-      travelMode: 'TRANSIT',
-    });
-    const polyline = payload?.routes?.[0]?.polyline?.encodedPolyline as string | undefined;
-    await googleLegCache.set(cacheKey, polyline ?? null);
-    return polyline;
+    const cached = await googleTransitLegCache.get(cacheKey);
+    if (cached !== undefined) {
+      const polyline = (await googleLegCache.get(cacheKey)) ?? undefined;
+      return { polyline, details: cached ?? undefined };
+    }
+    try {
+      const payload = await postJson(ROUTES_URL, apiKey, LEG_FIELD_MASK, {
+        origin: toWaypoint(origin).waypoint,
+        destination: toWaypoint(destination).waypoint,
+        travelMode: 'TRANSIT',
+      });
+      const route = payload?.routes?.[0];
+      const polyline = route?.polyline?.encodedPolyline as string | undefined;
+      const details = parseTransitLeg(route?.legs?.[0]);
+      await googleLegCache.set(cacheKey, polyline ?? null);
+      await googleTransitLegCache.set(cacheKey, details ?? null);
+      return { polyline, details };
+    } catch (e) {
+      // Fall back to a polyline fetched earlier, if any; the directions are not available.
+      const polyline = (await googleLegCache.get(cacheKey)) ?? undefined;
+      return { polyline, error: e instanceof Error ? e.message : String(e) };
+    }
   });
 
-  try {
-    const polylines = await runLimited(legs, MAX_PARALLEL_REQUESTS);
-    const coordinates: [number, number][] = [];
-    let missing = 0;
-    polylines.forEach((polyline, index) => {
-      const leg = polyline ? decodePolyline(polyline) : [straight[index], straight[index + 1]];
-      if (!polyline) missing += 1;
-      coordinates.push(...(coordinates.length > 0 ? leg.slice(1) : leg));
-    });
-    if (missing === polylines.length) {
-      return { coordinates: straight, warnings: ['Google returned no transit route – using straight‑line fallback.'] };
-    }
+  const results = await runLimited(legs, MAX_PARALLEL_REQUESTS);
+  const error = results.find((leg) => leg.error)?.error;
+  const transitLegs = results.map((leg) => leg.details);
+  const coordinates: [number, number][] = [];
+  let missing = 0;
+  results.forEach(({ polyline }, index) => {
+    const leg = polyline ? decodePolyline(polyline) : [straight[index], straight[index + 1]];
+    if (!polyline) missing += 1;
+    coordinates.push(...(coordinates.length > 0 ? leg.slice(1) : leg));
+  });
+  if (missing === results.length) {
     return {
-      coordinates,
-      warnings: missing > 0 ? [missing + ' legs have no transit route and are drawn as straight lines.'] : [],
+      coordinates: straight,
+      warnings: [error ? 'Google route request failed – using straight‑line fallback.' : 'Google returned no transit route – using straight‑line fallback.'],
+      error,
+      transitLegs,
     };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return { coordinates: straight, warnings: ['Google route request failed – using straight‑line fallback.'], error: message };
   }
+  const warnings = missing > 0 ? [missing + ' legs have no transit route and are drawn as straight lines.'] : [];
+  if (error) warnings.push('Some transit directions could not be loaded.');
+  return { coordinates, warnings, error, transitLegs };
 };
