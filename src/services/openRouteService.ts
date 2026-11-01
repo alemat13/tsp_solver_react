@@ -1,7 +1,7 @@
 import { CoordinatePoint, MatrixData, TravelMode } from '../types';
 import { buildHaversineMatrix } from '../utils/distance';
 
-const ORS_BASE_URL = 'https://api.openrouteservice.org/v2/matrix/';
+const ORS_BASE_URL = 'https://api.heigit.org/openrouteservice/v2/matrix/';
 /** Free-plan limits of the OpenRouteService API. */
 export const ORS_MAX_MATRIX_ELEMENTS = 3500;
 export const ORS_MAX_DIRECTIONS_WAYPOINTS = 50;
@@ -139,7 +139,7 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
   };
 };
 
-const ORS_DIRECTIONS_URL = 'https://api.openrouteservice.org/v2/directions/';
+const ORS_DIRECTIONS_URL = 'https://api.heigit.org/openrouteservice/v2/directions/';
 
 const decodePolyline = (polyline: string, precision = 5): [number, number][] => {
   const coordinates: [number, number][] = [];
