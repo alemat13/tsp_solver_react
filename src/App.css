@@ -1302,3 +1302,10 @@ code {
   background: var(--primary);
   color: #fff;
 }
+
+.cache-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}

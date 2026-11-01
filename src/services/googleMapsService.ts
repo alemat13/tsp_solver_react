@@ -1,5 +1,7 @@
 import { CoordinatePoint, MatrixData, TravelMode } from '../types';
 import { buildHaversineMatrix } from '../utils/distance';
+import { coordinateKey, googleLegCache, googleMatrixCache, PairValue } from './apiCache';
+import { readCachedMatrix, tileBlock } from './matrixCache';
 
 /**
  * Google public-transport routing through the Routes API.
@@ -111,35 +113,39 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
     return buildFallbackMatrix(params);
   }
 
-  const size = points.length;
-  const distances = Array.from({ length: size }, (_, i) => Array.from({ length: size }, (_, j) => (i === j ? 0 : Infinity)));
-  const durations = Array.from({ length: size }, (_, i) => Array.from({ length: size }, (_, j) => (i === j ? 0 : Infinity)));
+  // Cells already fetched in this session come from the in-memory cache (Google's terms do not
+  // allow storing distances or durations), so only new rows and columns are billed.
+  const { distances, durations: cachedDurations, keys, blocks } = await readCachedMatrix(googleMatrixCache, params.profile, points);
+  const durations = cachedDurations as number[][];
 
-  const tasks: (() => Promise<void>)[] = [];
-  for (let originStart = 0; originStart < size; originStart += TRANSIT_MATRIX_BLOCK) {
-    for (let destinationStart = 0; destinationStart < size; destinationStart += TRANSIT_MATRIX_BLOCK) {
-      const origins = points.slice(originStart, originStart + TRANSIT_MATRIX_BLOCK);
-      const destinations = points.slice(destinationStart, destinationStart + TRANSIT_MATRIX_BLOCK);
-      tasks.push(async () => {
-        const payload = await postJson(
-          ROUTE_MATRIX_URL,
-          apiKey,
-          'originIndex,destinationIndex,distanceMeters,duration,condition',
-          { origins: origins.map(toWaypoint), destinations: destinations.map(toWaypoint), travelMode: 'TRANSIT' }
-        );
-        if (!Array.isArray(payload)) {
-          throw new GoogleApiError('Invalid Google route matrix response format.');
-        }
-        for (const element of payload) {
-          const i = originStart + (element?.originIndex ?? 0);
-          const j = destinationStart + (element?.destinationIndex ?? 0);
-          if (i === j || element?.condition !== 'ROUTE_EXISTS') continue;
-          distances[i][j] = typeof element.distanceMeters === 'number' ? element.distanceMeters : Infinity;
-          durations[i][j] = parseDuration(element.duration) ?? Infinity;
-        }
-      });
+  const tasks = blocks.flatMap((block) => tileBlock(block, TRANSIT_MATRIX_BLOCK, TRANSIT_MATRIX_BLOCK)).map(({ sources, destinations }) => async () => {
+    const payload = await postJson(
+      ROUTE_MATRIX_URL,
+      apiKey,
+      'originIndex,destinationIndex,distanceMeters,duration,condition',
+      {
+        origins: sources.map((i) => toWaypoint(points[i])),
+        destinations: destinations.map((j) => toWaypoint(points[j])),
+        travelMode: 'TRANSIT',
+      }
+    );
+    if (!Array.isArray(payload)) {
+      throw new GoogleApiError('Invalid Google route matrix response format.');
     }
-  }
+    const fresh: [string, PairValue][] = [];
+    for (const element of payload) {
+      const i = sources[element?.originIndex ?? 0];
+      const j = destinations[element?.destinationIndex ?? 0];
+      if (i === undefined || j === undefined || i === j) continue;
+      const exists = element?.condition === 'ROUTE_EXISTS';
+      const d = exists && typeof element.distanceMeters === 'number' ? element.distanceMeters : null;
+      const seconds = exists ? parseDuration(element.duration) ?? null : null;
+      distances[i][j] = d ?? Infinity;
+      durations[i][j] = seconds ?? Infinity;
+      if (exists || element?.condition === 'ROUTE_NOT_FOUND') fresh.push([keys[i][j], { d, s: seconds }]);
+    }
+    await googleMatrixCache.setMany(fresh);
+  });
 
   try {
     await runLimited(tasks, MAX_PARALLEL_REQUESTS);
@@ -149,6 +155,7 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
     return { ...fallback, error: e instanceof GoogleApiError ? message : `Google Routes API request failed: ${message}` };
   }
 
+  for (const row of durations) for (let j = 0; j < row.length; j += 1) if (row[j] === undefined) row[j] = Infinity;
   const missing = distances.reduce((count, row, i) => count + row.filter((value, j) => i !== j && !Number.isFinite(value)).length, 0);
   return {
     data: {
@@ -206,13 +213,22 @@ export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<R
     return { coordinates: straight, warnings: ['Missing Google API key – using straight‑line geometry.'] };
   }
 
-  const legs = points.slice(0, -1).map((origin, index) => () =>
-    postJson(ROUTES_URL, apiKey, 'routes.polyline.encodedPolyline', {
+  // Each leg is cached on its own (as an encoded polyline, i.e. lat/lng values only, kept at most
+  // 30 days as the Google terms allow), so reordering stops reuses the legs already fetched.
+  const legs = points.slice(0, -1).map((origin, index) => async () => {
+    const destination = points[index + 1];
+    const cacheKey = coordinateKey(origin.latitude, origin.longitude) + '|' + coordinateKey(destination.latitude, destination.longitude);
+    const cached = await googleLegCache.get(cacheKey);
+    if (cached !== undefined) return cached ?? undefined;
+    const payload = await postJson(ROUTES_URL, apiKey, 'routes.polyline.encodedPolyline', {
       origin: toWaypoint(origin).waypoint,
-      destination: toWaypoint(points[index + 1]).waypoint,
+      destination: toWaypoint(destination).waypoint,
       travelMode: 'TRANSIT',
-    }).then((payload) => payload?.routes?.[0]?.polyline?.encodedPolyline as string | undefined)
-  );
+    });
+    const polyline = payload?.routes?.[0]?.polyline?.encodedPolyline as string | undefined;
+    await googleLegCache.set(cacheKey, polyline ?? null);
+    return polyline;
+  });
 
   try {
     const polylines = await runLimited(legs, MAX_PARALLEL_REQUESTS);
