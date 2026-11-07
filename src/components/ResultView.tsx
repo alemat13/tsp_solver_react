@@ -1,7 +1,9 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, Download, ExternalLink, Gauge, Info } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, CheckCircle2, ChevronDown, Download, ExternalLink, FileCode2, Gauge, Info, Loader2 } from 'lucide-react';
 import { SolveResult, TransitLeg } from '../types';
 import { TransitSteps } from './TransitSteps';
 import { buildGoogleMapsLinks, buildGpx, buildKml, downloadTextFile } from '../utils/exportRoute';
+import { downloadHtmlReport } from '../utils/downloadHtmlReport';
 import { describeOptimality, formatDistance, formatDuration, STRATEGY_LABELS } from '../ui/format';
 
 export interface Leg {
@@ -27,6 +29,19 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
   const route = result.orderedPoints;
   const isLoop = route.length > 1 && route[0].id === route[route.length - 1].id;
   const googleLinks = buildGoogleMapsLinks(route, travelMode);
+
+  const [htmlBusy, setHtmlBusy] = useState(false);
+
+  const exportHtml = async () => {
+    setHtmlBusy(true);
+    try {
+      await downloadHtmlReport({ result, legs, travelMode, matrixProvider, geometry: routeCoordinates, warnings });
+    } catch (error) {
+      window.alert('HTML export failed: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setHtmlBusy(false);
+    }
+  };
 
   const exportRoute = (format: 'gpx' | 'kml') => {
     const data = { name: 'Route (' + route.length + ' stops)', stops: route, geometry: routeCoordinates };
@@ -74,6 +89,9 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
         </button>
         <button type="button" className="button" onClick={() => exportRoute('kml')}>
           <Download size={16} /> KML
+        </button>
+        <button type="button" className="button" onClick={exportHtml} disabled={htmlBusy} title="Standalone web page with the map, every leg and a locate-me button">
+          {htmlBusy ? <Loader2 size={16} className="spin" /> : <FileCode2 size={16} />} HTML
         </button>
       </div>
 
