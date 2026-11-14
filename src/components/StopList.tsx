@@ -1,5 +1,5 @@
 import { CSSProperties, useEffect, useRef, useState } from 'react';
-import { Flag, Home, LocateFixed, MoreVertical, Pencil, Repeat, Trash2, MoveRight } from 'lucide-react';
+import { Eye, EyeOff, Flag, Home, LocateFixed, MoreVertical, Pencil, Repeat, Trash2, MoveRight } from 'lucide-react';
 import { CoordinatePoint } from '../types';
 import { formatCoords } from '../ui/format';
 
@@ -11,6 +11,7 @@ export interface StopListProps {
   onSetEnd: (id: string | undefined) => void;
   onRename: (id: string, label: string) => void;
   onRemove: (id: string) => void;
+  onToggle: (id: string, enabled: boolean) => void;
   onFocus: (id: string) => void;
 }
 
@@ -77,9 +78,10 @@ const StopRow = ({
   };
 
   const kind = isStart ? 'start' : isEnd ? 'end' : 'stop';
+  const enabled = !point.disabled;
 
   return (
-    <li className={'stop stop--' + kind} ref={rowRef}>
+    <li className={'stop stop--' + kind + (enabled ? '' : ' stop--disabled')} ref={rowRef}>
       <button type="button" className={'stop__badge stop__badge--' + kind} onClick={() => actions.onFocus(point.id)} aria-label={'Show ' + point.label + ' on the map'}>
         {isStart ? <Home size={15} /> : isEnd ? <Flag size={15} /> : index + 1}
       </button>
@@ -103,10 +105,20 @@ const StopRow = ({
         <span className="stop__meta">
           {isStart && <span className="tag tag--start">{isLoop ? 'Start & end' : 'Start'}</span>}
           {isEnd && <span className="tag tag--end">End</span>}
+          {!enabled && <span className="tag tag--off">Skipped</span>}
           <span className="stop__coords">{formatCoords(point.latitude, point.longitude)}</span>
         </span>
       </div>
       <div className="stop__actions">
+        <label className="switch" title={enabled ? 'Included in the route: click to skip it' : 'Skipped: click to include it in the route'}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(event) => actions.onToggle(point.id, event.target.checked)}
+            aria-label={'Include ' + point.label + ' in the route'}
+          />
+          <span className="switch__track" aria-hidden />
+        </label>
         <button type="button" className="icon-button icon-button--ghost" onClick={(event) => {
             // Fixed positioning so the menu is never clipped by the scrolling panel; opens upwards near the bottom.
             const rect = event.currentTarget.getBoundingClientRect();
@@ -125,6 +137,9 @@ const StopRow = ({
             </button>
             <button type="button" role="menuitem" onClick={() => { actions.onSetEnd(isEnd ? undefined : point.id); setMenuOpen(false); }}>
               <Flag size={16} /> {isEnd ? 'Don’t end here' : 'End here'}
+            </button>
+            <button type="button" role="menuitem" onClick={() => { actions.onToggle(point.id, !enabled); setMenuOpen(false); }}>
+              {enabled ? <EyeOff size={16} /> : <Eye size={16} />} {enabled ? 'Skip this stop' : 'Include this stop'}
             </button>
             <button type="button" role="menuitem" onClick={() => { actions.onFocus(point.id); setMenuOpen(false); }}>
               <LocateFixed size={16} /> Show on map
