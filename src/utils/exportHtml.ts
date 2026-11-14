@@ -226,7 +226,7 @@ ${inlineSafe(PAGE_CSS, 'style')}
     <ol class="timeline">
 ${items}
     </ol>
-    <footer>Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors. Map tiles need an internet connection; everything else works offline.</footer>
+    <footer>Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors, map tiles © <a href="https://www.esri.com/" target="_blank" rel="noreferrer">Esri</a>. Map tiles need an internet connection; everything else works offline.</footer>
   </main>
 </div>
 <script id="route-data" type="application/json">${jsonForScript(data)}</script>
@@ -350,21 +350,24 @@ const PAGE_SCRIPT = `
   'use strict';
   var data = JSON.parse(document.getElementById('route-data').textContent);
   var map = L.map('map', { zoomControl: true });
-  var osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  // The page is usually opened from a local file, so tile requests carry no Referer. OpenStreetMap's own
+  // servers answer those with an "Access blocked" image (which loads fine, so no tileerror can catch it),
+  // and CARTO now asks for an API key. Esri's street map accepts referer-less requests; if it fails,
+  // fall back to OpenStreetMap France's tiles.
+  var esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 20, maxNativeZoom: 19,
+    attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> &mdash; Sources: Esri, HERE, Garmin, USGS, <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   });
-  // Some tile servers refuse requests without a Referer (as from a local file): fall back to CARTO.
   var tileErrors = 0;
-  osm.on('tileerror', function () {
+  esri.on('tileerror', function () {
     if (++tileErrors !== 4) return;
-    map.removeLayer(osm);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19, subdomains: 'abcd',
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    map.removeLayer(esri);
+    L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
+      maxZoom: 20, subdomains: 'abc',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, tiles <a href="https://www.openstreetmap.fr/">OpenStreetMap France</a>'
     }).addTo(map);
   });
-  osm.addTo(map);
+  esri.addTo(map);
 
   if (data.line.length > 1) {
     L.polyline(data.line, { color: '#ffffff', weight: 9, opacity: 0.9 }).addTo(map);
