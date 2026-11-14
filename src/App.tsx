@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClipboardPaste, Loader2, Maximize2, MousePointerClick, Route, Settings2, Sparkles, Trash2, X } from 'lucide-react';
+import { ClipboardPaste, Loader2, LocateFixed, Maximize2, MousePointerClick, Route, Settings2, Sparkles, Trash2, X } from 'lucide-react';
 import { MapInsets, MapView } from './components/MapView';
 import { Sheet, SheetSnap } from './components/Sheet';
 import { StopSearch } from './components/StopSearch';
@@ -8,6 +8,7 @@ import { Leg, ResultView } from './components/ResultView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ImportDialog } from './components/ImportDialog';
 import { useMediaQuery } from './hooks/useMediaQuery';
+import { useGeolocation } from './hooks/useGeolocation';
 import { newPointId, Settings, usePersistentState } from './state/usePersistentState';
 import { GeocodeResult, reverseGeocode } from './services/geocoding';
 import { fetchMatrix as fetchORSMatrix, fetchRouteGeometry as fetchORSRouteGeometry } from './services/openRouteService';
@@ -33,6 +34,8 @@ const PROVIDER_LABELS: Record<MatrixData['provider'], string> = {
   haversine: 'straight-line',
 };
 
+const MY_LOCATION_LABEL = 'My location';
+
 const computeLegs = (route: CoordinatePoint[], matrix: MatrixData, points: CoordinatePoint[]): Leg[] => {
   const index = new Map(points.map((point, i) => [point.id, i]));
   return route.slice(0, -1).map((point, i) => {
@@ -56,6 +59,8 @@ export const App = () => {
   const [addMode, setAddMode] = useState(false);
   const [fitRequest, setFitRequest] = useState(0);
   const [focus, setFocus] = useState<{ id: string; nonce: number }>();
+  const geolocation = useGeolocation();
+  const [locateRequest, setLocateRequest] = useState(0);
 
   const [isSolving, setIsSolving] = useState(false);
   const [error, setError] = useState<string>();
@@ -110,6 +115,38 @@ export const App = () => {
     },
     [addPoint, points.length, updateStops]
   );
+
+  /** Centre the map on the user (asking for permission the first time). */
+  const showMyLocation = () => {
+    geolocation
+      .start()
+      .then(() => setLocateRequest((count) => count + 1))
+      .catch(() => undefined);
+  };
+
+  /** Add (or move) the "My location" stop to the user's position, optionally as the start. */
+  const addMyLocation = async (asStart: boolean) => {
+    let position;
+    try {
+      position = geolocation.position ?? (await geolocation.start());
+    } catch {
+      return;
+    }
+    const { latitude, longitude } = position;
+    const existing = points.find((point) => point.label === MY_LOCATION_LABEL);
+    let id: string;
+    if (existing) {
+      id = existing.id;
+      updateStops((current) => ({
+        ...current,
+        points: current.points.map((point) => (point.id === id ? { ...point, latitude, longitude } : point)),
+      }));
+      setFocus({ id, nonce: Date.now() });
+    } else {
+      id = addPoint({ label: MY_LOCATION_LABEL, latitude, longitude });
+    }
+    if (asStart) setStart(id);
+  };
 
   const removePoint = (id: string) =>
     updateStops((current) => ({
@@ -296,6 +333,9 @@ export const App = () => {
           insets={insets}
           fitRequest={fitRequest}
           focus={focus}
+          myLocation={geolocation.position}
+          locateRequest={locateRequest}
+          onUseMyLocation={addMyLocation}
         />
         {!desktop && (
           <div className="topbar">
@@ -311,6 +351,15 @@ export const App = () => {
         <div className="map-tools" style={desktop ? undefined : { bottom: sheetCover + 12, opacity: snap === 'full' ? 0 : 1, pointerEvents: snap === 'full' ? 'none' : undefined }}>
           <button
             type="button"
+            className={'fab' + (geolocation.status === 'on' ? ' fab--located' : '')}
+            onClick={showMyLocation}
+            aria-label="Show my location"
+            title="Show my location"
+          >
+            {geolocation.status === 'locating' ? <Loader2 className="spin" size={20} /> : <LocateFixed size={20} />}
+          </button>
+          <button
+            type="button"
             className={'fab' + (addMode ? ' fab--active' : '')}
             onClick={() => setAddMode((value) => !value)}
             aria-pressed={addMode}
@@ -324,6 +373,11 @@ export const App = () => {
           </button>
         </div>
         {addMode && <div className="map-banner" style={desktop ? undefined : { top: 72 }}>Tap the map to add a stop</div>}
+        {!addMode && geolocation.error && (
+          <button type="button" className="map-banner map-banner--error" style={desktop ? undefined : { top: 72 }} onClick={geolocation.clearError}>
+            {geolocation.error}
+          </button>
+        )}
       </div>
 
       <Sheet docked={desktop} snap={snap} onSnapChange={setSnap} onCoverChange={setSheetCover} header={header} footer={tab === 'stops' ? footer : resultFooter}>
@@ -333,6 +387,8 @@ export const App = () => {
               orsApiKey={settings.orsApiKey}
               focus={points.length ? [points[points.length - 1].latitude, points[points.length - 1].longitude] : undefined}
               onAdd={handleSearchAdd}
+              onLocate={() => addMyLocation(!startId)}
+              locating={geolocation.status === 'locating'}
               onFocusChange={(focused) => focused && !desktop && setSnap('full')}
             />
             {error && <div className="callout callout--error">{error}</div>}
@@ -340,9 +396,14 @@ export const App = () => {
               <div className="empty">
                 <p className="empty__title">Where are you going?</p>
                 <p>Search for an address, tap the map with <MousePointerClick size={14} /> (or long-press it), or import a list of coordinates.</p>
-                <button type="button" className="button" onClick={() => setImportOpen(true)}>
-                  <ClipboardPaste size={16} /> Import a list
-                </button>
+                <div className="empty__actions">
+                  <button type="button" className="button" onClick={() => addMyLocation(true)} disabled={geolocation.status === 'locating'}>
+                    {geolocation.status === 'locating' ? <Loader2 className="spin" size={16} /> : <LocateFixed size={16} />} Start from my location
+                  </button>
+                  <button type="button" className="button" onClick={() => setImportOpen(true)}>
+                    <ClipboardPaste size={16} /> Import a list
+                  </button>
+                </div>
               </div>
             ) : (
               <>

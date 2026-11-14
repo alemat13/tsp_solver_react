@@ -1470,3 +1470,52 @@ code {
   justify-content: space-between;
   gap: 12px;
 }
+
+/* ───────── My location ───────── */
+
+.fab--located {
+  color: #2563eb;
+}
+
+.map-banner--error {
+  border: none;
+  background: #b91c1c;
+  cursor: pointer;
+  white-space: normal;
+  max-width: min(90vw, 420px);
+  text-align: center;
+}
+
+.my-location {
+  filter: drop-shadow(0 1px 3px rgba(15, 23, 42, 0.35));
+}
+
+.my-location-popup {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.my-location-popup small {
+  color: var(--text-2);
+}
+
+.my-location-popup__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.my-location-popup__actions .button {
+  flex: 1;
+  min-height: 36px;
+  padding: 0 0.6rem;
+  font-size: 0.85rem;
+}
+
+.empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
