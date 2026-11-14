@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { MapContainer, Marker, Polyline, TileLayer, Tooltip, ZoomControl, useMap, useMapEvents } from 'react-leaflet';
+import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, ZoomControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { CoordinatePoint } from '../types';
+import { UserPosition } from '../hooks/useGeolocation';
 import 'leaflet/dist/leaflet.css';
 
 const DEFAULT_CENTER: [number, number] = [46.6, 2.4];
@@ -29,6 +30,12 @@ export interface MapViewProps {
   fitRequest: number;
   /** Point to pan to (e.g. just added or tapped in the list). */
   focus?: { id: string; nonce: number };
+  /** The user's live position, shown as a blue dot. */
+  myLocation?: UserPosition;
+  /** Increment to centre the view on `myLocation`. */
+  locateRequest?: number;
+  /** Add the user's position as a stop (optionally as the start). */
+  onUseMyLocation?: (asStart: boolean) => void;
 }
 
 type PinKind = 'start' | 'end' | 'both' | 'stop' | 'off';
@@ -59,16 +66,28 @@ const paddingOptions = (insets: MapInsets): L.FitBoundsOptions => ({
   maxZoom: 16,
 });
 
+/** Map centre that puts `position` in the middle of the area not covered by floating UI. */
+const visibleCenter = (map: L.Map, position: L.LatLngExpression, zoom: number, insets: MapInsets) => {
+  const { top, bottom, left, right } = insets;
+  const target = map.project(position, zoom);
+  const offset = L.point((left - right) / 2, (top - bottom) / 2);
+  return map.unproject(target.subtract(offset), zoom);
+};
+
 const ViewController = ({
   coordinates,
   insets,
   fitRequest,
   focusPosition,
+  myLocation,
+  locateRequest,
 }: {
   coordinates: [number, number][];
   insets: MapInsets;
   fitRequest: number;
   focusPosition?: { position: [number, number]; nonce: number };
+  myLocation?: UserPosition;
+  locateRequest?: number;
 }) => {
   const map = useMap();
   const insetsRef = useRef(insets);
@@ -90,14 +109,21 @@ const ViewController = ({
 
   useEffect(() => {
     if (!focusPosition) return;
-    const { top, bottom, left, right } = insetsRef.current;
     // Pan so the point lands in the centre of the visible (uncovered) area.
-    const size = map.getSize();
-    const target = map.project(focusPosition.position, map.getZoom());
-    const offset = L.point((left - right) / 2, (top - bottom) / 2);
-    const center = map.unproject(target.subtract(offset), map.getZoom());
-    if (size.x > 0) map.panTo(center, { animate: true });
+    const center = visibleCenter(map, focusPosition.position, map.getZoom(), insetsRef.current);
+    if (map.getSize().x > 0) map.panTo(center, { animate: true });
   }, [map, focusPosition]);
+
+  const locationRef = useRef(myLocation);
+  locationRef.current = myLocation;
+  const hasLocation = !!myLocation;
+  useEffect(() => {
+    const location = locationRef.current;
+    if (!locateRequest || !location) return;
+    const position: [number, number] = [location.latitude, location.longitude];
+    const zoom = Math.max(map.getZoom(), 16);
+    map.flyTo(visibleCenter(map, position, zoom, insetsRef.current), zoom, { duration: 0.8 });
+  }, [map, locateRequest, hasLocation]);
 
   // The container size changes when the side panel / sheet layout changes.
   useEffect(() => {
@@ -108,7 +134,39 @@ const ViewController = ({
   return null;
 };
 
-export const MapView = ({ points, route, startId, endId, polyline, addMode, onAddPoint, insets, fitRequest, focus }: MapViewProps) => {
+const MyLocationActions = ({ onUse }: { onUse: (asStart: boolean) => void }) => {
+  const map = useMap();
+  const use = (asStart: boolean) => {
+    map.closePopup();
+    onUse(asStart);
+  };
+  return (
+    <div className="my-location-popup__actions">
+      <button type="button" className="button button--primary" onClick={() => use(true)}>
+        Start here
+      </button>
+      <button type="button" className="button" onClick={() => use(false)}>
+        Add as stop
+      </button>
+    </div>
+  );
+};
+
+export const MapView = ({
+  points,
+  route,
+  startId,
+  endId,
+  polyline,
+  addMode,
+  onAddPoint,
+  insets,
+  fitRequest,
+  focus,
+  myLocation,
+  locateRequest,
+  onUseMyLocation,
+}: MapViewProps) => {
   const markers = useMemo(() => {
     if (route && route.length) {
       const seen = new Set<string>();
@@ -164,7 +222,38 @@ export const MapView = ({ points, route, startId, endId, polyline, addMode, onAd
         />
         <ZoomControl position="topright" />
         <MapEvents addMode={addMode} onAddPoint={onAddPoint} />
-        <ViewController coordinates={fitCoordinates} insets={insets} fitRequest={fitRequest} focusPosition={focusPosition} />
+        <ViewController
+          coordinates={fitCoordinates}
+          insets={insets}
+          fitRequest={fitRequest}
+          focusPosition={focusPosition}
+          myLocation={myLocation}
+          locateRequest={locateRequest}
+        />
+        {myLocation && (
+          <>
+            <Circle
+              center={[myLocation.latitude, myLocation.longitude]}
+              radius={myLocation.accuracy}
+              interactive={false}
+              pathOptions={{ color: '#2563eb', weight: 1, opacity: 0.4, fillColor: '#3b82f6', fillOpacity: 0.12 }}
+            />
+            <CircleMarker
+              center={[myLocation.latitude, myLocation.longitude]}
+              radius={8}
+              pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }}
+              className="my-location"
+            >
+              <Popup>
+                <div className="my-location-popup">
+                  <strong>You are here</strong>
+                  <small>±{Math.round(myLocation.accuracy)} m</small>
+                  {onUseMyLocation && <MyLocationActions onUse={onUseMyLocation} />}
+                </div>
+              </Popup>
+            </CircleMarker>
+          </>
+        )}
         {line.length > 1 && (
           <>
             <Polyline positions={line} pathOptions={{ color: '#ffffff', weight: 9, opacity: 0.9 }} />

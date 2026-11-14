@@ -8,13 +8,16 @@ export interface StopSearchProps {
   focus?: [number, number];
   onAdd: (result: GeocodeResult) => void;
   onFocusChange?: (focused: boolean) => void;
+  /** Handles the "my location" button instead of adding a plain "My location" result. */
+  onLocate?: () => void;
+  locating?: boolean;
 }
 
 /**
  * Search box for adding stops. Accepts an address / place name or raw "lat, lon" coordinates.
  * Searches as you type with an ORS key; otherwise on Enter (Nominatim usage policy).
  */
-export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange }: StopSearchProps) => {
+export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange, onLocate, locating: externalLocating }: StopSearchProps) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GeocodeResult[]>([]);
   const [status, setStatus] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle');
@@ -86,6 +89,10 @@ export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange }: StopSearc
   };
 
   const locate = () => {
+    if (onLocate) {
+      onLocate();
+      return;
+    }
     if (!navigator.geolocation) {
       setStatus('error');
       setMessage('Geolocation is not available on this device.');
@@ -133,8 +140,8 @@ export const StopSearch = ({ orsApiKey, focus, onAdd, onFocusChange }: StopSearc
             <X size={18} />
           </button>
         )}
-        <button type="button" className="icon-button" onClick={locate} aria-label="Add my location" title="Add my location">
-          {locating ? <Loader2 className="spin" size={18} /> : <LocateFixed size={18} />}
+        <button type="button" className="icon-button" onClick={locate} aria-label="Add my current location" title="Add my current location">
+          {locating || externalLocating ? <Loader2 className="spin" size={18} /> : <LocateFixed size={18} />}
         </button>
       </form>
       {(results.length > 0 || coordinateMatch || status === 'empty' || status === 'error') && (
