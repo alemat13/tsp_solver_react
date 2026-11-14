@@ -12,6 +12,8 @@ export interface CoordinatePoint {
   label: string;
   latitude: number;
   longitude: number;
+  /** Disabled stops stay in the list but are left out of the route. */
+  disabled?: boolean;
 }
 
 export type DistanceMatrix = number[][];

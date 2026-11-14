@@ -31,7 +31,7 @@ export interface MapViewProps {
   focus?: { id: string; nonce: number };
 }
 
-type PinKind = 'start' | 'end' | 'both' | 'stop';
+type PinKind = 'start' | 'end' | 'both' | 'stop' | 'off';
 
 const pinIcon = (text: string, kind: PinKind, highlighted: boolean) =>
   L.divIcon({
@@ -122,9 +122,14 @@ export const MapView = ({ points, route, startId, endId, polyline, addMode, onAd
         const kind: PinKind = isFirst && isLoop ? 'both' : isFirst ? 'start' : isLast ? 'end' : 'stop';
         list.push({ point, text: String(index + 1), kind });
       });
+      // Skipped stops stay visible, greyed out, so they are easy to find and re-enable.
+      points.forEach((point) => {
+        if (point.disabled && !seen.has(point.id)) list.push({ point, text: '–', kind: 'off' });
+      });
       return list;
     }
     return points.map((point, index) => {
+      if (point.disabled) return { point, text: String(index + 1), kind: 'off' as PinKind };
       const isStart = point.id === startId;
       const isEnd = point.id === endId;
       const kind: PinKind = isStart && (isEnd || !endId) ? 'both' : isStart ? 'start' : isEnd ? 'end' : 'stop';
@@ -171,9 +176,9 @@ export const MapView = ({ points, route, startId, endId, polyline, addMode, onAd
             key={point.id}
             position={[point.latitude, point.longitude]}
             icon={pinIcon(text, kind, focus?.id === point.id)}
-            zIndexOffset={kind === 'stop' ? 0 : 500}
+            zIndexOffset={kind === 'off' ? -500 : kind === 'stop' ? 0 : 500}
           >
-            <Tooltip direction="top">{point.label}</Tooltip>
+            <Tooltip direction="top">{point.label + (kind === 'off' ? ' (skipped)' : '')}</Tooltip>
           </Marker>
         ))}
       </MapContainer>
