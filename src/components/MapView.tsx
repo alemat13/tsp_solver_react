@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, ZoomControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { CoordinatePoint } from '../types';
 import { UserPosition } from '../hooks/useGeolocation';
+import { StopActions, StopMenuItems } from './StopMenu';
 import 'leaflet/dist/leaflet.css';
 
 const DEFAULT_CENTER: [number, number] = [46.6, 2.4];
@@ -36,9 +37,19 @@ export interface MapViewProps {
   locateRequest?: number;
   /** Add the user's position as a stop (optionally as the start). */
   onUseMyLocation?: (asStart: boolean) => void;
+  /** Actions offered in the popup that opens when a stop marker is tapped. */
+  stopActions?: StopActions;
 }
 
 type PinKind = 'start' | 'end' | 'both' | 'stop' | 'off';
+
+interface StopMarker {
+  point: CoordinatePoint;
+  text: string;
+  kind: PinKind;
+  /** Position in the solved route (1-based). */
+  routeIndex?: number;
+}
 
 const pinIcon = (text: string, kind: PinKind, highlighted: boolean) =>
   L.divIcon({
@@ -152,6 +163,68 @@ const MyLocationActions = ({ onUse }: { onUse: (asStart: boolean) => void }) => 
   );
 };
 
+const StopPopupContent = ({
+  point,
+  isStart,
+  isEnd,
+  routeIndex,
+  actions,
+}: {
+  point: CoordinatePoint;
+  isStart: boolean;
+  isEnd: boolean;
+  routeIndex?: number;
+  actions: StopActions;
+}) => {
+  const map = useMap();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(point.label);
+  const close = () => map.closePopup();
+  const commit = () => {
+    const label = draft.trim();
+    if (label && label !== point.label) actions.onRename(point.id, label);
+    setEditing(false);
+  };
+  const status = [
+    isStart && isEnd ? 'Start & end' : isStart ? 'Start' : isEnd ? 'End' : undefined,
+    point.disabled ? 'Skipped' : routeIndex !== undefined ? 'Stop ' + routeIndex + ' in the route' : undefined,
+  ].filter(Boolean);
+  return (
+    <div className="stop-popup">
+      {editing ? (
+        <input
+          className="stop__edit"
+          value={draft}
+          autoFocus
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit();
+            if (event.key === 'Escape') setEditing(false);
+          }}
+          aria-label="Stop name"
+        />
+      ) : (
+        <strong className="stop-popup__title">{point.label}</strong>
+      )}
+      {status.length > 0 && <small className="stop-popup__status">{status.join(' · ')}</small>}
+      <div className="stop-popup__menu" role="menu">
+        <StopMenuItems
+          point={point}
+          isStart={isStart}
+          isEnd={isEnd}
+          actions={actions}
+          onDone={close}
+          onRename={() => {
+            setDraft(point.label);
+            setEditing(true);
+          }}
+        />
+      </div>
+    </div>
+  );
+};
+
 export const MapView = ({
   points,
   route,
@@ -166,11 +239,12 @@ export const MapView = ({
   myLocation,
   locateRequest,
   onUseMyLocation,
+  stopActions,
 }: MapViewProps) => {
-  const markers = useMemo(() => {
+  const markers = useMemo<StopMarker[]>(() => {
     if (route && route.length) {
       const seen = new Set<string>();
-      const list: { point: CoordinatePoint; text: string; kind: PinKind }[] = [];
+      const list: StopMarker[] = [];
       const isLoop = route.length > 1 && route[0].id === route[route.length - 1].id;
       route.forEach((point, index) => {
         if (seen.has(point.id)) return;
@@ -178,7 +252,7 @@ export const MapView = ({
         const isFirst = index === 0;
         const isLast = index === route.length - 1;
         const kind: PinKind = isFirst && isLoop ? 'both' : isFirst ? 'start' : isLast ? 'end' : 'stop';
-        list.push({ point, text: String(index + 1), kind });
+        list.push({ point, text: String(index + 1), kind, routeIndex: index + 1 });
       });
       // Skipped stops stay visible, greyed out, so they are easy to find and re-enable.
       points.forEach((point) => {
@@ -187,7 +261,7 @@ export const MapView = ({
       return list;
     }
     return points.map((point, index) => {
-      if (point.disabled) return { point, text: String(index + 1), kind: 'off' as PinKind };
+      if (point.disabled) return { point, text: String(index + 1), kind: 'off' };
       const isStart = point.id === startId;
       const isEnd = point.id === endId;
       const kind: PinKind = isStart && (isEnd || !endId) ? 'both' : isStart ? 'start' : isEnd ? 'end' : 'stop';
@@ -260,14 +334,34 @@ export const MapView = ({
             <Polyline positions={line} pathOptions={{ color: '#4f46e5', weight: 5, opacity: 0.95 }} />
           </>
         )}
-        {markers.map(({ point, text, kind }) => (
+        {markers.map(({ point, text, kind, routeIndex }) => (
           <Marker
             key={point.id}
             position={[point.latitude, point.longitude]}
             icon={pinIcon(text, kind, focus?.id === point.id)}
             zIndexOffset={kind === 'off' ? -500 : kind === 'stop' ? 0 : 500}
+            eventHandlers={{
+              // The name label is redundant once the menu is open (touch screens open both on tap).
+              popupopen: (event) => window.setTimeout(() => (event.target as L.Marker).closeTooltip(), 0),
+            }}
           >
             <Tooltip direction="top">{point.label + (kind === 'off' ? ' (skipped)' : '')}</Tooltip>
+            {stopActions && (
+              <Popup
+                className="stop-popup-wrapper"
+                minWidth={250}
+                autoPanPaddingTopLeft={[insets.left + 16, insets.top + 16]}
+                autoPanPaddingBottomRight={[insets.right + 16, insets.bottom + 16]}
+              >
+                <StopPopupContent
+                  point={point}
+                  isStart={point.id === startId}
+                  isEnd={point.id === endId}
+                  routeIndex={routeIndex}
+                  actions={stopActions}
+                />
+              </Popup>
+            )}
           </Marker>
         ))}
       </MapContainer>

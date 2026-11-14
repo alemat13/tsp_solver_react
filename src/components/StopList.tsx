@@ -1,17 +1,13 @@
 import { CSSProperties, useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, Flag, Home, LocateFixed, MoreVertical, Pencil, Repeat, Trash2, MoveRight } from 'lucide-react';
+import { Flag, Home, LocateFixed, MoreVertical, Repeat, MoveRight } from 'lucide-react';
 import { CoordinatePoint } from '../types';
 import { formatCoords } from '../ui/format';
+import { StopActions, StopMenuItems } from './StopMenu';
 
-export interface StopListProps {
+export interface StopListProps extends StopActions {
   points: CoordinatePoint[];
   startId?: string;
   endId?: string;
-  onSetStart: (id: string | undefined) => void;
-  onSetEnd: (id: string | undefined) => void;
-  onRename: (id: string, label: string) => void;
-  onRemove: (id: string) => void;
-  onToggle: (id: string, enabled: boolean) => void;
   onFocus: (id: string) => void;
 }
 
@@ -132,24 +128,19 @@ const StopRow = ({
         </button>
         {menuOpen && (
           <div className="menu" role="menu" style={menuStyle}>
-            <button type="button" role="menuitem" onClick={() => { actions.onSetStart(isStart ? undefined : point.id); setMenuOpen(false); }}>
-              <Home size={16} /> {isStart ? 'Don’t start here' : 'Start here'}
-            </button>
-            <button type="button" role="menuitem" onClick={() => { actions.onSetEnd(isEnd ? undefined : point.id); setMenuOpen(false); }}>
-              <Flag size={16} /> {isEnd ? 'Don’t end here' : 'End here'}
-            </button>
-            <button type="button" role="menuitem" onClick={() => { actions.onToggle(point.id, !enabled); setMenuOpen(false); }}>
-              {enabled ? <EyeOff size={16} /> : <Eye size={16} />} {enabled ? 'Skip this stop' : 'Include this stop'}
-            </button>
-            <button type="button" role="menuitem" onClick={() => { actions.onFocus(point.id); setMenuOpen(false); }}>
-              <LocateFixed size={16} /> Show on map
-            </button>
-            <button type="button" role="menuitem" onClick={() => { setDraft(point.label); setEditing(true); setMenuOpen(false); }}>
-              <Pencil size={16} /> Rename
-            </button>
-            <button type="button" role="menuitem" className="menu__danger" onClick={() => { actions.onRemove(point.id); setMenuOpen(false); }}>
-              <Trash2 size={16} /> Remove
-            </button>
+            <StopMenuItems
+              point={point}
+              isStart={isStart}
+              isEnd={isEnd}
+              actions={actions}
+              onDone={() => setMenuOpen(false)}
+              onRename={() => { setDraft(point.label); setEditing(true); setMenuOpen(false); }}
+              extra={
+                <button type="button" role="menuitem" onClick={() => { actions.onFocus(point.id); setMenuOpen(false); }}>
+                  <LocateFixed size={16} /> Show on map
+                </button>
+              }
+            />
           </div>
         )}
       </div>

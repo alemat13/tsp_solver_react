@@ -369,6 +369,7 @@ export const App = () => {
           myLocation={geolocation.position}
           locateRequest={locateRequest}
           onUseMyLocation={addMyLocation}
+          stopActions={{ onSetStart: setStart, onSetEnd: setEnd, onRename: renamePoint, onRemove: removePoint, onToggle: togglePoint }}
         />
         {!desktop && (
           <div className="topbar">
