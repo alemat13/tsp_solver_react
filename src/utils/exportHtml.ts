@@ -5,7 +5,7 @@ import { CoordinatePoint, SolveResult, TransitLeg, TransitRide, TravelMode } fro
 import { describeOptimality, formatDistance, formatDuration, STRATEGY_LABELS } from '../ui/format';
 import { travelModeOption } from '../ui/travelModes';
 import { formatClock, vehicleIcon } from '../components/TransitSteps';
-import { buildGoogleMapsLinks } from './exportRoute';
+import { buildCitymapperLink, buildGoogleMapsLinks } from './exportRoute';
 
 /**
  * Standalone HTML export: a single file with the whole itinerary (stops, legs, public-transport
@@ -141,7 +141,9 @@ export const buildHtmlReport = (input: HtmlReportInput, assets: HtmlReportAssets
       const role = isFirst ? 'Start' : isLast ? (isLoop ? 'Back to start' : 'End') : '';
       const legHtml =
         !isLast && leg
-          ? `<div class="leg"><span class="leg__summary">${escapeHtml(formatDistance(leg.distance))}${leg.duration ? ' · ' + escapeHtml(formatDuration(leg.duration)) : ''}</span>${
+          ? `<div class="leg"><span class="leg__summary">${escapeHtml(formatDistance(leg.distance))}${leg.duration ? ' · ' + escapeHtml(formatDuration(leg.duration)) : ''} · <a href="${escapeHtml(
+              buildCitymapperLink(route[index + 1], point)
+            )}" target="_blank" rel="noreferrer">Citymapper</a></span>${
               leg.transit ? transitHtml(leg.transit) : ''
             }</div>`
           : '';
@@ -153,7 +155,7 @@ export const buildHtmlReport = (input: HtmlReportInput, assets: HtmlReportAssets
   <div class="stop__body">
     <button type="button" class="stop__label" data-focus="${index}">${escapeHtml(point.label)}</button>
     <div class="stop__meta">${role ? `<span class="role">${role}</span>` : ''}<span class="coords">${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}</span><span class="dist" data-dist="${index}"></span></div>
-    <div class="stop__actions"><a href="${escapeHtml(directionsTo(point, travelMode))}" target="_blank" rel="noreferrer">Directions</a>${doneKey}</div>
+    <div class="stop__actions"><a href="${escapeHtml(directionsTo(point, travelMode))}" target="_blank" rel="noreferrer">Google Maps</a><a href="${escapeHtml(buildCitymapperLink(point))}" target="_blank" rel="noreferrer">Citymapper</a>${doneKey}</div>
   </div>
 </div>
 ${legHtml}
@@ -308,6 +310,7 @@ h1 { font-size: 1.35rem; margin: 0 0 2px; }
 .item.is-nearest .dot { box-shadow: 0 0 0 3px var(--me); }
 .leg { margin: 6px 0 10px 44px; font-size: .85rem; color: var(--text-2); }
 .leg__summary { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); }
+.leg__summary a { color: var(--primary); font-weight: 600; text-decoration: none; }
 .transit { margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .transit summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; }
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 1; }
@@ -336,7 +339,7 @@ footer { margin-top: 24px; font-size: .75rem; color: var(--text-3); }
 .leaflet-control-locate.is-active a { color: var(--me); }
 @media print {
   .map-pane { position: static; height: 60vh; page-break-after: always; }
-  .actions, .done, .stop__actions a { display: none; }
+  .actions, .done, .stop__actions a, .leg__summary a { display: none; }
   .transit { break-inside: avoid; }
 }
 `;

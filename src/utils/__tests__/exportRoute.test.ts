@@ -1,4 +1,4 @@
-import { buildGoogleMapsLinks, buildGpx, buildKml } from '../exportRoute';
+import { buildCitymapperLink, buildGoogleMapsLinks, buildGpx, buildKml } from '../exportRoute';
 
 const stops = Array.from({ length: 23 }, (_, i) => ({ id: 'p' + i, label: i === 0 ? 'Café & Co <1>' : 'Stop ' + i, latitude: 48.8 + i / 1000, longitude: 2.3 }));
 
@@ -25,5 +25,17 @@ describe('route export', () => {
     expect(first.searchParams.get('travelmode')).toBe('walking');
     expect(first.searchParams.get('waypoints')?.split('|')).toHaveLength(9);
     expect(new URL(links[1]).searchParams.get('origin')).toBe(first.searchParams.get('destination'));
+  });
+
+  it('builds Citymapper links for one leg or from the current location', () => {
+    const leg = new URL(buildCitymapperLink(stops[1], stops[0]));
+    expect(leg.origin + leg.pathname).toBe('https://citymapper.com/directions');
+    expect(leg.searchParams.get('startcoord')).toBe('48.800000,2.300000');
+    expect(leg.searchParams.get('startname')).toBe('Café & Co <1>');
+    expect(leg.searchParams.get('endcoord')).toBe('48.801000,2.300000');
+    expect(leg.searchParams.get('endname')).toBe('Stop 1');
+    const fromHere = new URL(buildCitymapperLink(stops[2]));
+    expect(fromHere.searchParams.has('startcoord')).toBe(false);
+    expect(fromHere.searchParams.get('endcoord')).toBe('48.802000,2.300000');
   });
 });
