@@ -9,7 +9,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { ImportDialog } from './components/ImportDialog';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { useGeolocation } from './hooks/useGeolocation';
-import { newPointId, Settings, usePersistentState } from './state/usePersistentState';
+import { activeStops, newPointId, Settings, usePersistentState } from './state/usePersistentState';
 import { GeocodeResult, reverseGeocode } from './services/geocoding';
 import { fetchMatrix as fetchORSMatrix, fetchRouteGeometry as fetchORSRouteGeometry } from './services/openRouteService';
 import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRouteGeometry } from './services/googleMapsService';
@@ -49,6 +49,8 @@ const computeLegs = (route: CoordinatePoint[], matrix: MatrixData, points: Coord
 export const App = () => {
   const [{ settings, stops }, setState] = usePersistentState();
   const { points, startId, endId } = stops;
+  // Skipped stops stay in the list but are left out of the matrix, the solver and every export.
+  const active = useMemo(() => activeStops(stops), [stops]);
   const desktop = useMediaQuery('(min-width: 900px)');
 
   const [tab, setTab] = useState<'stops' | 'result'>('stops');
@@ -139,7 +141,10 @@ export const App = () => {
       id = existing.id;
       updateStops((current) => ({
         ...current,
-        points: current.points.map((point) => (point.id === id ? { ...point, latitude, longitude } : point)),
+        // Using my location again also brings back a skipped "My location" stop.
+        points: current.points.map(({ disabled, ...point }) =>
+          point.id === id ? { ...point, latitude, longitude } : disabled ? { ...point, disabled } : point
+        ),
       }));
       setFocus({ id, nonce: Date.now() });
     } else {
@@ -153,6 +158,22 @@ export const App = () => {
       points: current.points.filter((point) => point.id !== id),
       startId: current.startId === id ? undefined : current.startId,
       endId: current.endId === id ? undefined : current.endId,
+    }));
+
+  const togglePoint = (id: string, enabled: boolean) =>
+    updateStops((current) => ({
+      ...current,
+      points: current.points.map((point) => {
+        if (point.id !== id) return point;
+        const { disabled: _disabled, ...rest } = point;
+        return enabled ? rest : { ...rest, disabled: true };
+      }),
+    }));
+
+  const setAllEnabled = (enabled: boolean) =>
+    updateStops((current) => ({
+      ...current,
+      points: current.points.map(({ disabled: _disabled, ...rest }) => (enabled ? rest : { ...rest, disabled: true })),
     }));
 
   const renamePoint = (id: string, label: string) =>
@@ -173,7 +194,7 @@ export const App = () => {
       setEnd(undefined);
       return;
     }
-    const candidate = [...points].reverse().find((point) => point.id !== startId);
+    const candidate = [...points].reverse().find((point) => point.id !== startId && !point.disabled);
     if (candidate) setEnd(candidate.id);
   };
 
@@ -189,7 +210,12 @@ export const App = () => {
 
   const solve = async () => {
     const { travelMode, solverMode, objective, googleApiKey, orsApiKey, exactTimeLimitSeconds } = settings;
+    const { points, startId, endId } = active;
     const preWarnings: string[] = [];
+    const skipped = stops.points.length - points.length;
+    if (skipped > 0) preWarnings.push(skipped + ' skipped stop' + (skipped > 1 ? 's' : '') + ' left out of the route.');
+    if (active.startDisabled) preWarnings.push('The start stop is skipped, so the route starts at whichever stop is best.');
+    if (active.endDisabled) preWarnings.push('The end stop is skipped, so the route is a round trip.');
     if (solverMode === 'brute-force') {
       const estimate = describeBruteForceEstimate(points.length);
       if (!window.confirm('Brute force may take about ' + estimate + '. Continue?')) return;
@@ -261,7 +287,9 @@ export const App = () => {
   const isLoop = !endId;
   const mode = travelModeOption(settings.travelMode);
   const missingKey = mode.provider === 'google' ? !settings.googleApiKey : !settings.orsApiKey;
-  const canSolve = points.length >= 2 && !isSolving;
+  const activeCount = active.points.length;
+  const skippedCount = points.length - activeCount;
+  const canSolve = activeCount >= 2 && !isSolving;
   const exportText = points.map((point) => point.latitude.toFixed(6) + ', ' + point.longitude.toFixed(6) + ', ' + point.label).join('\n');
 
   const header = (
@@ -277,7 +305,7 @@ export const App = () => {
       )}
       <div className="tabs" role="tablist">
         <button type="button" role="tab" aria-selected={tab === 'stops'} className={tab === 'stops' ? 'is-active' : ''} onClick={() => setTab('stops')}>
-          Stops <span className="tabs__count">{points.length}</span>
+          Stops <span className="tabs__count">{skippedCount ? activeCount + '/' + points.length : points.length}</span>
         </button>
         <button type="button" role="tab" aria-selected={tab === 'result'} className={tab === 'result' ? 'is-active' : ''} onClick={() => setTab('result')} disabled={!solution}>
           Route
@@ -300,7 +328,12 @@ export const App = () => {
           </>
         ) : (
           <>
-            <Sparkles size={20} /> {points.length < 2 ? 'Add at least 2 stops' : 'Optimise ' + points.length + ' stops'}
+            <Sparkles size={20} />{' '}
+            {activeCount >= 2
+              ? 'Optimise ' + activeCount + ' stops'
+              : points.length >= 2
+                ? 'Include at least 2 stops'
+                : 'Add at least 2 stops'}
           </>
         )}
       </button>
@@ -443,6 +476,25 @@ export const App = () => {
                       : 'Round trip back to the start (pick it with ⋮ if needed).'
                     : 'One way to “' + points.find((p) => p.id === endId)?.label + '”' + (startId ? ', from “' + points.find((p) => p.id === startId)?.label + '”.' : ', from any stop.')}
                 </p>
+                {(active.startDisabled || active.endDisabled) && (
+                  <div className="callout callout--warning">
+                    {active.startDisabled && active.endDisabled
+                      ? 'Start and end are skipped: the route will be a round trip from the best stop.'
+                      : active.startDisabled
+                        ? 'The start is skipped: the route will start at whichever stop is best.'
+                        : 'The end is skipped: the route will be a round trip until you include it again.'}
+                  </div>
+                )}
+                {skippedCount > 0 && (
+                  <div className="stops-skipped">
+                    <span>
+                      {skippedCount} skipped stop{skippedCount > 1 ? 's' : ''}, not in the route
+                    </span>
+                    <button type="button" className="link-button" onClick={() => setAllEnabled(true)}>
+                      Include all
+                    </button>
+                  </div>
+                )}
                 <StopList
                   points={points}
                   startId={startId}
@@ -451,6 +503,7 @@ export const App = () => {
                   onSetEnd={setEnd}
                   onRename={renamePoint}
                   onRemove={removePoint}
+                  onToggle={togglePoint}
                   onFocus={focusOn}
                 />
               </>
@@ -471,7 +524,7 @@ export const App = () => {
         )}
       </Sheet>
 
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onChange={updateSettings} pointCount={points.length} />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onChange={updateSettings} pointCount={activeCount} />
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} hasStops={points.length > 0} onImport={importPoints} exportText={exportText} />
     </div>
   );

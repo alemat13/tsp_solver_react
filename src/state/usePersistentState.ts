@@ -57,13 +57,38 @@ const isPoint = (value: unknown): value is CoordinatePoint => {
 };
 
 const sanitizeStops = (value: Partial<StopsState> | undefined): StopsState => {
-  const points = Array.isArray(value?.points) ? value!.points.filter(isPoint) : [];
+  const points = (Array.isArray(value?.points) ? value!.points.filter(isPoint) : []).map(({ disabled, ...point }) =>
+    disabled === true ? { ...point, disabled: true } : point
+  );
   const has = (id?: string) => !!id && points.some((point) => point.id === id);
   return {
     points,
     startId: has(value?.startId) ? value!.startId : undefined,
     endId: has(value?.endId) ? value!.endId : undefined,
   };
+};
+
+export interface ActiveStops {
+  /** Stops that take part in the route (disabled ones left out). */
+  points: CoordinatePoint[];
+  /** Start/end actually used: a disabled start or end is ignored until it is re-enabled. */
+  startId?: string;
+  endId?: string;
+  startDisabled: boolean;
+  endDisabled: boolean;
+}
+
+/** The part of the stop list that is sent to the matrix and the solver. */
+export const activeStops = ({ points, startId, endId }: StopsState): ActiveStops => {
+  const active = points.filter((point) => !point.disabled);
+  const isActive = (id?: string) => !!id && active.some((point) => point.id === id);
+  const startDisabled = !!startId && !isActive(startId);
+  const endDisabled = !!endId && !isActive(endId);
+  const start = startDisabled ? undefined : startId;
+  let end = endDisabled ? undefined : endId;
+  // A one-way trip ending where it starts would be a loop.
+  if (end && end === start) end = undefined;
+  return { points: active, startId: start, endId: end, startDisabled, endDisabled };
 };
 
 const readStorage = (key: string): unknown => {
