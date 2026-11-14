@@ -958,6 +958,16 @@ svg.search__trailing {
   font-variant-numeric: tabular-nums;
 }
 
+.timeline__link {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.timeline__link:hover {
+  text-decoration: underline;
+}
+
 /* ───────── Transit directions ───────── */
 
 .transit-note {

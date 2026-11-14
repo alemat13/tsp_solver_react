@@ -106,6 +106,21 @@ export const buildGoogleMapsLinks = (stops: CoordinatePoint[], travelMode: strin
   return links;
 };
 
+/**
+ * Citymapper directions for one leg. Citymapper has no waypoints, so each leg gets its own link.
+ * Without `from`, Citymapper starts from the user's current location.
+ */
+export const buildCitymapperLink = (to: CoordinatePoint, from?: CoordinatePoint): string => {
+  const params = new URLSearchParams();
+  if (from) {
+    params.set('startcoord', coordinate(from.latitude) + ',' + coordinate(from.longitude));
+    if (from.label) params.set('startname', from.label);
+  }
+  params.set('endcoord', coordinate(to.latitude) + ',' + coordinate(to.longitude));
+  if (to.label) params.set('endname', to.label);
+  return 'https://citymapper.com/directions?' + params.toString();
+};
+
 /** Triggers a file download in the browser. */
 export const downloadTextFile = (fileName: string, content: string, mimeType: string) => {
   const blob = new Blob([content], { type: mimeType });

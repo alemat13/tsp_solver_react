@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, Download, ExternalLink, FileCode2, Gauge, Info, Loader2 } from 'lucide-react';
 import { SolveResult, TransitLeg } from '../types';
 import { TransitSteps } from './TransitSteps';
-import { buildGoogleMapsLinks, buildGpx, buildKml, downloadTextFile } from '../utils/exportRoute';
+import { buildCitymapperLink, buildGoogleMapsLinks, buildGpx, buildKml, downloadTextFile } from '../utils/exportRoute';
 import { downloadHtmlReport } from '../utils/downloadHtmlReport';
 import { describeOptimality, formatDistance, formatDuration, STRATEGY_LABELS } from '../ui/format';
 
@@ -132,6 +132,10 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
                 <div className="timeline__leg">
                   {formatDistance(leg.distance)}
                   {leg.duration ? ' · ' + formatDuration(leg.duration) : ''}
+                  {' · '}
+                  <a className="timeline__link" href={buildCitymapperLink(route[index + 1], point)} target="_blank" rel="noreferrer">
+                    Citymapper
+                  </a>
                   {leg.transit && <TransitSteps leg={leg.transit} />}
                 </div>
               )}
