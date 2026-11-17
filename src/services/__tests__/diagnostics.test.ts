@@ -10,17 +10,17 @@ describe('diagnostic log', () => {
   });
 
   it('masks registered keys and key-like query parameters', () => {
-    registerSecrets('my-secret-ors-key-123');
-    expect(redact('Authorization my-secret-ors-key-123 failed')).toBe('Authorization *** failed');
+    registerSecrets('FAKE_KEY_aaaaaaaa');
+    expect(redact('Authorization FAKE_KEY_aaaaaaaa failed')).toBe('Authorization *** failed');
     expect(redact('https://x.org/a?api_key=abcdef&text=Paris')).toBe('https://x.org/a?api_key=***&text=Paris');
   });
 
   it('never writes a registered key into the copied log', () => {
-    registerSecrets('google-key-abcdefgh');
-    logInfo('test', 'something with google-key-abcdefgh', { key: 'google-key-abcdefgh' });
+    registerSecrets('FAKE_KEY_bbbbbbbb');
+    logInfo('test', 'something with FAKE_KEY_bbbbbbbb', { key: 'FAKE_KEY_bbbbbbbb' });
     setDiagnosticContext({ Settings: 'travel mode foot-walking' });
     const text = formatLog();
-    expect(text).not.toContain('google-key-abcdefgh');
+    expect(text).not.toContain('FAKE_KEY_bbbbbbbb');
     expect(text).toContain('travel mode foot-walking');
     expect(text).toContain('[test] something with ***');
   });
@@ -33,10 +33,10 @@ describe('diagnostic log', () => {
     const fresh = await import('../diagnostics');
     fresh.clearLog();
     fresh.installFetchLogger();
-    fresh.registerSecrets('ors-key-0123456789');
+    fresh.registerSecrets('FAKE_KEY_cccccccc');
     await window.fetch('https://api.heigit.org/openrouteservice/v2/directions/foot-walking?api_key=leaked', {
       method: 'POST',
-      headers: { Authorization: 'ors-key-0123456789' },
+      headers: { Authorization: 'FAKE_KEY_cccccccc' },
       body: JSON.stringify({ coordinates: [[5.4312345678, 43.21], [5.5, 43.2]], radiuses: [350, 2000] }),
     });
     const text = fresh.formatLog();
@@ -45,7 +45,7 @@ describe('diagnostic log', () => {
     expect(text).toContain('HTTP 404');
     expect(text).toContain('specified coordinate 1');
     expect(text).not.toContain('leaked');
-    expect(text).not.toContain('ors-key-0123456789');
+    expect(text).not.toContain('FAKE_KEY_cccccccc');
     expect(stub).toHaveBeenCalledTimes(1);
   });
 
