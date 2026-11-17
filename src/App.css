@@ -1539,6 +1539,33 @@ code {
   color: #fff;
 }
 
+/* Diagnostic log (Settings, and under warnings / errors). */
+.diagnostics__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.diagnostics__log {
+  max-height: 320px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.1));
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.callout__log {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
 .cache-row {
   display: flex;
   align-items: center;

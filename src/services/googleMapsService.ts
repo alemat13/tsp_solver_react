@@ -2,6 +2,7 @@ import { CoordinatePoint, MatrixData, TransitLeg, TransitRide, TransitStep, Trav
 import { buildHaversineMatrix } from '../utils/distance';
 import { coordinateKey, googleLegCache, googleMatrixCache, googleTransitLegCache, PairValue } from './apiCache';
 import { readCachedMatrix, tileBlock } from './matrixCache';
+import { logInfo, logWarn } from './diagnostics';
 
 /**
  * Google public-transport routing through the Routes API.
@@ -119,6 +120,8 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
   // allow storing distances or durations), so only new rows and columns are billed.
   const { distances, durations: cachedDurations, keys, blocks } = await readCachedMatrix(googleMatrixCache, params.profile, points);
   const durations = cachedDurations as number[][];
+  const missingCells = blocks.reduce((sum, block) => sum + block.sources.length * block.destinations.length, 0);
+  logInfo('google', 'Transit matrix: ' + points.length + ' points, ' + missingCells + ' cell(s) to fetch in ' + blocks.length + ' block(s), the rest from the session cache');
 
   const tasks = blocks.flatMap((block) => tileBlock(block, TRANSIT_MATRIX_BLOCK, TRANSIT_MATRIX_BLOCK)).map(({ sources, destinations }) => async () => {
     const payload = await postJson(
@@ -288,6 +291,7 @@ export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<R
     const cacheKey = coordinateKey(origin.latitude, origin.longitude) + '|' + coordinateKey(destination.latitude, destination.longitude);
     const cached = await googleTransitLegCache.get(cacheKey);
     if (cached !== undefined) {
+      logInfo('google', 'Transit leg ' + (index + 1) + ': from cache');
       const polyline = (await googleLegCache.get(cacheKey)) ?? undefined;
       return { polyline, details: cached ?? undefined };
     }
@@ -306,6 +310,7 @@ export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<R
     } catch (e) {
       // Fall back to a polyline fetched earlier, if any; the directions are not available.
       const polyline = (await googleLegCache.get(cacheKey)) ?? undefined;
+      logWarn('google', 'Transit leg ' + (index + 1) + ' failed' + (polyline ? ', using a cached polyline' : ', straight line'), { error: e instanceof Error ? e.message : String(e) });
       return { polyline, error: e instanceof Error ? e.message : String(e) };
     }
   });
@@ -320,6 +325,7 @@ export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<R
     if (!polyline) missing += 1;
     coordinates.push(...(coordinates.length > 0 ? leg.slice(1) : leg));
   });
+  logInfo('google', 'Transit route: ' + results.length + ' legs, ' + missing + ' without a polyline' + (error ? ', first error: ' + error : ''));
   if (missing === results.length) {
     return {
       coordinates: straight,

@@ -2,6 +2,7 @@ import { CoordinatePoint, MatrixData, TravelMode } from '../types';
 import { buildHaversineMatrix } from '../utils/distance';
 import { coordinateKey, orsDirectionsCache, orsMatrixCache, PairValue } from './apiCache';
 import { readCachedMatrix, tileBlock } from './matrixCache';
+import { logDebug, logError, logInfo, logWarn } from './diagnostics';
 
 const ORS_BASE_URL = 'https://api.heigit.org/openrouteservice/v2/matrix/';
 /** Free-plan limits of the OpenRouteService API. */
@@ -58,6 +59,7 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
   const { apiKey, profile, points } = params;
 
   if (!apiKey) {
+    logInfo('ors', 'Matrix: no ORS key, straight-line distances', { profile, points: points.length });
     return buildFallbackMatrix(params);
   }
 
@@ -66,6 +68,8 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
   // Cells already fetched (this session or earlier) come from the cache; only the missing rows
   // and columns are requested.
   const { distances, durations, keys, blocks } = await readCachedMatrix(orsMatrixCache, profile, points);
+  const missingCells = blocks.reduce((sum, block) => sum + block.sources.length * block.destinations.length, 0);
+  logInfo('ors', 'Matrix ' + profile + ': ' + size + ' points, ' + (size * (size - 1) - Math.min(missingCells, size * (size - 1))) + '/' + size * (size - 1) + ' cells from cache, ' + blocks.length + ' block(s) to fetch');
 
   for (const block of blocks) {
     // ORS caps a matrix request at ORS_MAX_MATRIX_ELEMENTS cells (sources x destinations):
@@ -92,6 +96,7 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
 
       if (!response.ok) {
         const errorText = await response.text();
+        logError('ors', 'Matrix failed, falling back to straight-line distances', { status: response.status, error: describeOrsError(response.status, errorText) });
         const fallback = buildFallbackMatrix(params);
         return {
           data: fallback.data,
@@ -104,6 +109,7 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
       const blockDistances = payload && payload.distances;
       const blockDurations = payload && payload.durations;
       if (!isValidResponseMatrix(blockDistances) || blockDistances.length !== sources.length) {
+        logError('ors', 'Matrix payload invalid, falling back to straight-line distances', { rows: sources.length, payloadKeys: payload ? Object.keys(payload) : null });
         const fallback = buildFallbackMatrix(params);
         return {
           data: fallback.data,
@@ -127,6 +133,8 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
         });
       });
       await orsMatrixCache.setMany(fresh);
+      const unroutable = fresh.filter(([, value]) => value.d === null).length;
+      if (unroutable > 0) logWarn('ors', 'Matrix: ' + unroutable + ' unroutable pair(s) (null distance)');
     }
   }
 
@@ -205,6 +213,8 @@ const ORS_MAX_TIMEOUTS = 2;
 
 interface OrsFailure {
   status: number;
+  /** ORS error code from the response body (2010: no road near a point, 2009: no route...). */
+  code?: number;
   message: string;
   /** Index (in the request) of a waypoint with no road nearby (ORS error 2010). */
   point?: number;
@@ -231,7 +241,7 @@ const describeOrsError = (status: number, body: string): { code?: number; messag
 
 const parseOrsFailure = (status: number, body: string): OrsFailure => {
   const { code, message } = describeOrsError(status, body);
-  const failure: OrsFailure = { status, message };
+  const failure: OrsFailure = { status, message, code };
   if (code === 2010) {
     const match = /coordinate (\d+)/.exec(message);
     if (match) failure.point = Number(match[1]);
@@ -327,6 +337,10 @@ const addOnce = (list: string[], message: string) => {
   if (!list.includes(message)) list.push(message);
 };
 
+/** "stops 3 → 7 (5 points)" with coordinates, for the log. */
+const describeSegment = (points: CoordinatePoint[]) =>
+  points.length + ' points [' + points.map((point) => point.latitude.toFixed(5) + ',' + point.longitude.toFixed(5)).join(' ; ') + ']';
+
 const segmentCacheKey = (profile: string, points: CoordinatePoint[]) =>
   profile + '|' + points.map((point) => coordinateKey(point.latitude, point.longitude)).join(';');
 
@@ -345,14 +359,24 @@ const requestWithinBudget = async (
   }
   context.budget -= 1;
   let outcome: DirectionsOutcome;
+  const started = Date.now();
   try {
     outcome = await requestDirections(params, points, radiuses);
   } catch (error) {
     const timedOut = error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError');
-    if (timedOut && ++context.timeouts >= ORS_MAX_TIMEOUTS) context.down = true;
+    if (timedOut && ++context.timeouts >= ORS_MAX_TIMEOUTS) {
+      context.down = true;
+      logError('ors', context.timeouts + ' timeouts: ORS considered down for this route');
+    }
     outcome = { failure: { status: 0, message: timedOut ? 'no answer after ' + ORS_DIRECTIONS_TIMEOUT_MS / 1000 + ' s' : error instanceof Error ? error.message : 'network error' } };
   }
-  if ('geometry' in outcome) context.verified = true;
+  const summary = 'Directions ' + describeSegment(points) + (radiuses ? ' (wide radius)' : '') + ' in ' + (Date.now() - started) + ' ms';
+  if ('geometry' in outcome) {
+    context.verified = true;
+    logInfo('ors', summary + ': OK, ' + outcome.geometry.length + ' coordinates');
+  } else {
+    logWarn('ors', summary + ': failed', outcome.failure);
+  }
   return outcome;
 };
 
@@ -370,7 +394,10 @@ const routeSegment = async (
 
   const cacheKey = segmentCacheKey(params.profile, points);
   const cached = await orsDirectionsCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    logDebug('ors', 'Directions ' + describeSegment(points) + ': from cache');
+    return cached;
+  }
 
   let outcome = await requestWithinBudget(params, points, context);
 
@@ -378,14 +405,20 @@ const routeSegment = async (
     // The stop is off the road network (a beach, a trail, a park): look for a road further
     // away before giving up on it.
     const point = outcome.failure.point;
+    logInfo('ors', 'Retrying with a ' + ORS_WIDE_SNAP_RADIUS + ' m snapping radius for ' + stopName(points[point] ?? points[0]));
     const retry = await requestWithinBudget(
       params,
       points,
       context,
       points.map((_, index) => (index === point ? ORS_WIDE_SNAP_RADIUS : ORS_DEFAULT_SNAP_RADIUS))
     );
-    if ('geometry' in retry) outcome = retry;
-    else context.tryWiderRadius = false;
+    if ('geometry' in retry) {
+      logInfo('ors', 'Wider radius worked');
+      outcome = retry;
+    } else {
+      logWarn('ors', 'Wider radius failed too; no more wide-radius retries for this route', retry.failure);
+      context.tryWiderRadius = false;
+    }
   }
 
   if ('geometry' in outcome) {
@@ -397,6 +430,7 @@ const routeSegment = async (
   const { failure } = outcome;
   const { point, leg } = failure;
   if (point !== undefined && point >= 0 && point < points.length) {
+    logWarn('ors', 'Fallback: straight lines around unroutable stop ' + stopName(points[point]) + ', routing both sides separately');
     addOnce(
       context.warnings,
       'No road found near stop ' + stopName(points[point]) + ' for this travel mode, so the legs to and from it are drawn as straight lines.'
@@ -406,6 +440,7 @@ const routeSegment = async (
     return [...before, straightLine([points[point]])[0], ...after];
   }
   if (leg && leg[0] >= 0 && leg[0] < leg[1] && leg[1] < points.length) {
+    logWarn('ors', 'Fallback: straight line between ' + stopName(points[leg[0]]) + ' and ' + stopName(points[leg[1]]) + ', routing both sides separately');
     addOnce(
       context.warnings,
       'No route found between ' + stopName(points[leg[0]]) + ' and ' + stopName(points[leg[1]]) + ', so that leg is drawn as a straight line.'
@@ -419,6 +454,7 @@ const routeSegment = async (
   // itinerary) or a network error: route each half separately, so that only the part that keeps
   // failing is drawn as straight lines.
   if (failure.down) {
+    logWarn('ors', 'Skipped ' + describeSegment(points) + ': ORS considered down, straight lines');
     addOnce(context.warnings, 'OpenRouteService is not answering right now, so the rest of the route is drawn as straight lines. Try again later.');
     return straightLine(points);
   }
@@ -428,8 +464,10 @@ const routeSegment = async (
     // so that an outage costs two requests rather than thirty.
     const middle = Math.floor((points.length - 1) / 2);
     const leg = points.slice(middle, middle + 2);
+    logInfo('ors', 'Server-side failure before any success: probing ORS with a single leg ' + describeSegment(leg));
     const probe = await requestWithinBudget(params, leg, context);
     if ('failure' in probe) {
+      logError('ors', 'Probe failed too: ORS considered down, whole route drawn as straight lines', probe.failure);
       context.down = true;
       addOnce(context.warnings, 'OpenRouteService is not answering right now, so the route is drawn as straight lines. Try again later.');
       addOnce(context.errors, 'OpenRouteService directions failed (HTTP ' + failure.status + '): ' + failure.message);
@@ -439,11 +477,13 @@ const routeSegment = async (
   }
   if (serverSide && points.length > 2 && context.budget > 0 && !context.down) {
     const middle = Math.floor(points.length / 2);
+    logInfo('ors', 'Splitting ' + describeSegment(points) + ' in two after a server-side failure (budget left: ' + context.budget + ')');
     const before = await routeSegment(params, points.slice(0, middle + 1), context);
     const after = await routeSegment(params, points.slice(middle), context);
     return [...before, ...after];
   }
   if (serverSide && points.length === 2) {
+    logWarn('ors', 'Fallback: straight line for leg ' + describeSegment(points));
     addOnce(
       context.warnings,
       'No detailed route between ' + stopName(points[0]) + ' and ' + stopName(points[1]) + ', so that leg is drawn as a straight line.'
@@ -452,6 +492,7 @@ const routeSegment = async (
     return straightLine(points);
   }
 
+  logWarn('ors', 'Fallback: straight lines for ' + describeSegment(points), failure);
   addOnce(context.warnings, 'Detailed route unavailable; drawing straight lines between stops instead.');
   addOnce(context.errors, 'OpenRouteService directions failed (HTTP ' + failure.status + '): ' + failure.message);
   return straightLine(points);
@@ -466,11 +507,21 @@ export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<R
   const context: SegmentContext = { tryWiderRadius: true, budget: ORS_MAX_DIRECTIONS_REQUESTS, verified: false, down: false, timeouts: 0, warnings: [], errors: [] };
   const coordinates: [number, number][] = [];
   if (points.length < 2) return { coordinates: straightLine(points), warnings: [] };
+  const started = Date.now();
+  logInfo('ors', 'Route geometry ' + params.profile + ': ' + points.length + ' points, ' + Math.ceil((points.length - 1) / (ORS_MAX_DIRECTIONS_WAYPOINTS - 1)) + ' chunk(s)');
   for (let start = 0; start < points.length - 1; start += ORS_MAX_DIRECTIONS_WAYPOINTS - 1) {
     const chunk = points.slice(start, start + ORS_MAX_DIRECTIONS_WAYPOINTS);
     const geometry = await routeSegment(params, chunk, context);
     coordinates.push(...(coordinates.length > 0 ? geometry.slice(1) : geometry));
   }
+  logInfo('ors', 'Route geometry done in ' + (Date.now() - started) + ' ms', {
+    requests: ORS_MAX_DIRECTIONS_REQUESTS - context.budget,
+    timeouts: context.timeouts,
+    down: context.down,
+    coordinates: coordinates.length,
+    warnings: context.warnings,
+    errors: context.errors,
+  });
   return {
     coordinates,
     warnings: context.warnings,

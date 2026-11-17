@@ -7,6 +7,7 @@ import { StopList, TripTypeSwitch } from './components/StopList';
 import { Leg, ResultView } from './components/ResultView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ImportDialog } from './components/ImportDialog';
+import { CopyLogButton } from './components/DiagnosticLog';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { useGeolocation } from './hooks/useGeolocation';
 import { activeStops, newPointId, Settings, usePersistentState } from './state/usePersistentState';
@@ -14,6 +15,7 @@ import { GeocodeResult, reverseGeocode } from './services/geocoding';
 import { fetchMatrix as fetchORSMatrix, fetchRouteGeometry as fetchORSRouteGeometry } from './services/openRouteService';
 import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRouteGeometry } from './services/googleMapsService';
 import { solveInBackground } from './services/solverClient';
+import { logError, logInfo, logWarn, registerSecrets, setDiagnosticContext } from './services/diagnostics';
 import { describeBruteForceEstimate } from './utils/solverEstimate';
 import { TRAVEL_MODES, travelModeOption } from './ui/travelModes';
 import { CoordinatePoint, MatrixData, SolveResult, TransitLeg } from './types';
@@ -77,6 +79,21 @@ export const App = () => {
     (update: (current: typeof stops) => typeof stops) => setState((state) => ({ ...state, stops: update(state.stops) })),
     [setState]
   );
+
+  // API keys never appear in the diagnostic log; the current setup is printed at its top.
+  useEffect(() => registerSecrets(settings.orsApiKey, settings.googleApiKey), [settings.orsApiKey, settings.googleApiKey]);
+  useEffect(() => {
+    setDiagnosticContext({
+      Settings:
+        'travel mode ' + settings.travelMode + ', solver ' + settings.solverMode + ', objective ' + settings.objective +
+        ', exact time limit ' + settings.exactTimeLimitSeconds + ' s, ORS key ' + (settings.orsApiKey ? 'set' : 'missing') +
+        ', Google key ' + (settings.googleApiKey ? 'set' : 'missing'),
+      Stops:
+        points.length + ' (' + active.points.length + ' included), ' + (endId ? 'one way' : 'round trip') +
+        ', start ' + (startId ? points.findIndex((point) => point.id === startId) : 'any') + ', end ' + (endId ? points.findIndex((point) => point.id === endId) : 'start'),
+      'Stop list': points.map((point, index) => index + ': ' + point.latitude.toFixed(5) + ',' + point.longitude.toFixed(5) + ' ' + point.label + (point.disabled ? ' (skipped)' : '')).join(' | '),
+    });
+  }, [settings, points, startId, endId, active.points.length]);
 
   // Any change to the problem invalidates the computed route.
   useEffect(() => {
@@ -228,6 +245,9 @@ export const App = () => {
     setIsSolving(true);
     setError(undefined);
     setSolution(undefined);
+    const solveStarted = performance.now();
+    const elapsed = () => Math.round(performance.now() - solveStarted) + ' ms';
+    logInfo('app', 'Optimise pressed: ' + points.length + ' stops, ' + travelMode + ', ' + solverMode + ', ' + objective, { preWarnings });
     try {
       const matrixResult =
         travelMode === 'transit'
@@ -241,6 +261,10 @@ export const App = () => {
 
       const warnings = [...preWarnings, ...matrixResult.warnings, ...result.warnings];
       if (matrixResult.error) warnings.push(matrixResult.error);
+      (matrixResult.error ? logWarn : logInfo)('app', 'Matrix from ' + matrixResult.data.provider + ', order shown after ' + elapsed(), {
+        error: matrixResult.error,
+        warnings: matrixResult.warnings,
+      });
 
       const legs = computeLegs(result.orderedPoints, matrixResult.data, points);
       const provider = matrixResult.data.provider;
@@ -278,8 +302,13 @@ export const App = () => {
           routeWarnings.push(...geometryResult.warnings);
           if (geometryResult.error) routeWarnings.push(geometryResult.error);
         } catch (routeError) {
+          logError('app', 'Route geometry threw: ' + (routeError instanceof Error ? routeError.name + ': ' + routeError.message : String(routeError)));
           routeWarnings.push('Detailed route geometry unavailable: ' + (routeError instanceof Error ? routeError.message : 'unknown error'));
         }
+        logInfo('app', 'Route geometry ready after ' + elapsed() + (token === solveToken.current ? '' : ' (ignored: a newer solve started)'), {
+          coordinates: geometry.length,
+          warnings: routeWarnings,
+        });
         // Ignore the answer if the user has solved again (or cleared the result) meanwhile.
         if (token === solveToken.current) {
           setSolution((current) =>
@@ -295,6 +324,9 @@ export const App = () => {
         }
       }
     } catch (solveError) {
+      logError('app', 'Solve failed after ' + elapsed() + ': ' + (solveError instanceof Error ? solveError.name + ': ' + solveError.message : String(solveError)), {
+        stack: solveError instanceof Error ? solveError.stack?.slice(0, 1500) : undefined,
+      });
       setError(solveError instanceof Error ? solveError.message : 'Unexpected error while solving the route.');
     } finally {
       setIsSolving(false);
@@ -447,7 +479,12 @@ export const App = () => {
               locating={geolocation.status === 'locating'}
               onFocusChange={(focused) => focused && !desktop && setSnap('full')}
             />
-            {error && <div className="callout callout--error">{error}</div>}
+            {error && (
+              <div className="callout callout--error">
+                {error}
+                <CopyLogButton className="link-button callout__log" label="Copy diagnostic log" />
+              </div>
+            )}
             {points.length === 0 ? (
               <div className="empty">
                 <p className="empty__title">Where are you going?</p>

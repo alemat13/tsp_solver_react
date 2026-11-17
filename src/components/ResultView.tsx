@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { CopyLogButton } from './DiagnosticLog';
 import { AlertTriangle, CheckCircle2, ChevronDown, Download, ExternalLink, FileCode2, Gauge, Info, Loader2 } from 'lucide-react';
 import { SolveResult, TransitLeg } from '../types';
 import { TransitSteps } from './TransitSteps';
@@ -106,6 +107,7 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
               <li key={index}>{warning}</li>
             ))}
           </ul>
+          <CopyLogButton className="link-button callout__log" label="Copy diagnostic log" />
         </details>
       )}
 
