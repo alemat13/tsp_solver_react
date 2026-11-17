@@ -37,6 +37,56 @@ describe('OpenRouteService', () => {
     expect(result.coordinates).toHaveLength(60);
   });
 
+  const unroutable = (index: number) => ({
+    ok: false,
+    status: 404,
+    text: async () =>
+      JSON.stringify({ error: { code: 2010, message: 'Could not find routable point within a radius of 350.0 meters of specified coordinate ' + index + ': 5.4433692 43.2131160.' } }),
+  });
+
+  it('retries an off-road stop with an unlimited snapping radius', async () => {
+    mockFetch().mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body);
+      if (!body.radiuses) return unroutable(2);
+      return { ok: true, json: async () => ({ routes: [{ geometry: body.coordinates }] }) };
+    });
+    const result = await fetchRouteGeometry({ apiKey: 'k', profile: 'driving-car', points: points(5).map((p) => ({ ...p, latitude: p.latitude + 1 })) });
+    expect(mockFetch()).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(mockFetch().mock.calls[1][1].body).radiuses).toEqual([350, 350, -1, 350, 350]);
+    expect(result.coordinates).toHaveLength(5);
+    expect(result.warnings).toEqual([]);
+    expect(result.error).toBeUndefined();
+  });
+
+  it('draws only the legs around an unroutable stop as straight lines', async () => {
+    const stops = points(6).map((p) => ({ ...p, latitude: p.latitude + 2 }));
+    const offRoad = stops[3];
+    mockFetch().mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body);
+      const index = body.coordinates.findIndex((c: number[]) => c[1] === offRoad.latitude);
+      if (index >= 0) return unroutable(index);
+      // Road geometry: one extra vertex per leg.
+      const geometry = body.coordinates.flatMap((c: number[], i: number) => (i === 0 ? [c] : [[c[0] + 0.001, c[1]], c]));
+      return { ok: true, json: async () => ({ routes: [{ geometry }] }) };
+    });
+    const result = await fetchRouteGeometry({ apiKey: 'k', profile: 'foot-walking', points: stops });
+    // Full request, radius retry, then stops 0-2 and 4-5 on roads.
+    expect(mockFetch()).toHaveBeenCalledTimes(4);
+    expect(result.coordinates).toHaveLength(5 + 1 + 3);
+    expect(result.coordinates[5]).toEqual([offRoad.latitude, offRoad.longitude]);
+    expect(result.warnings).toEqual([
+      'No road found near stop “P3” for this travel mode, so the legs to and from it are drawn as straight lines.',
+    ]);
+    expect(result.error).toBeUndefined();
+  });
+
+  it('turns other ORS errors into a readable message', async () => {
+    mockFetch().mockResolvedValue({ ok: false, status: 403, text: async () => JSON.stringify({ error: 'Access to this API has been disallowed' }) });
+    const result = await fetchRouteGeometry({ apiKey: 'k', profile: 'driving-car', points: points(3).map((p) => ({ ...p, latitude: p.latitude + 3 })) });
+    expect(result.coordinates).toHaveLength(3);
+    expect(result.error).toBe('OpenRouteService directions failed (HTTP 403): Access to this API has been disallowed');
+  });
+
   it('keeps the closing leg of a loop', async () => {
     const loop = [...points(3), points(3)[0]];
     mockFetch().mockImplementation(async (_url: string, init: { body: string }) => ({

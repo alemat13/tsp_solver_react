@@ -96,7 +96,7 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
         return {
           data: fallback.data,
           warnings: fallback.warnings,
-          error: 'OpenRouteService responded with status ' + response.status + ': ' + errorText,
+          error: 'OpenRouteService matrix failed (HTTP ' + response.status + '): ' + describeOrsError(response.status, errorText).message,
         };
       }
 
@@ -189,47 +189,79 @@ const decodePolyline = (polyline: string, precision = 5): [number, number][] => 
   return coordinates;
 };
 
-const fetchRouteGeometryChunk = async (params: RouteGeometryParams): Promise<RouteGeometryResult> => {
-  const { apiKey, profile, points } = params;
+/** ORS snaps each waypoint to a road within this radius (metres) unless told otherwise. */
+const ORS_DEFAULT_SNAP_RADIUS = 350;
 
-  if (points.length < 2) {
-    return { coordinates: points.map((point) => [point.latitude, point.longitude]), warnings: [] };
+interface OrsFailure {
+  status: number;
+  message: string;
+  /** Index (in the request) of a waypoint with no road nearby (ORS error 2010). */
+  point?: number;
+  /** Indexes (in the request) of two waypoints with no route between them (ORS error 2009). */
+  leg?: [number, number];
+}
+
+type DirectionsOutcome = { geometry: [number, number][]; warnings: string[] } | { failure: OrsFailure };
+
+/** Human-readable message from an ORS error body, which is JSON like {"error":{"code":2010,"message":"..."}}. */
+const describeOrsError = (status: number, body: string): { code?: number; message: string } => {
+  try {
+    const error = JSON.parse(body)?.error;
+    if (typeof error === 'string') return { message: error };
+    if (error && typeof error.message === 'string') return { code: typeof error.code === 'number' ? error.code : undefined, message: error.message };
+  } catch {
+    // Not JSON: use the raw text below.
   }
+  const text = body.trim();
+  return { message: text && text.length < 200 ? text : 'HTTP ' + status };
+};
 
-  const coordinates = points.map((point) => [point.longitude, point.latitude]);
-  const cacheKey = profile + '|' + points.map((point) => coordinateKey(point.latitude, point.longitude)).join(';');
-  const cached = await orsDirectionsCache.get(cacheKey);
-  if (cached) {
-    return { coordinates: cached, warnings: [] };
+const parseOrsFailure = (status: number, body: string): OrsFailure => {
+  const { code, message } = describeOrsError(status, body);
+  const failure: OrsFailure = { status, message };
+  if (code === 2010) {
+    const match = /coordinate (\d+)/.exec(message);
+    if (match) failure.point = Number(match[1]);
+  } else if (code === 2009) {
+    const match = /between points (\d+)\D.*?and (\d+)\D/.exec(message + ' ');
+    if (match) failure.leg = [Number(match[1]), Number(match[2])];
   }
+  return failure;
+};
 
-  const response = await fetch(ORS_DIRECTIONS_URL + profile, {
+const straightLine = (points: CoordinatePoint[]): [number, number][] => points.map((point) => [point.latitude, point.longitude]);
+
+const stopName = (point: CoordinatePoint) => '“' + (point.label?.trim() || point.latitude.toFixed(5) + ', ' + point.longitude.toFixed(5)) + '”';
+
+const requestDirections = async (
+  params: RouteGeometryParams,
+  points: CoordinatePoint[],
+  radiuses?: number[]
+): Promise<DirectionsOutcome> => {
+  const body: Record<string, unknown> = {
+    coordinates: points.map((point) => [point.longitude, point.latitude]),
+    instructions: false,
+    units: 'm',
+  };
+  if (radiuses) body.radiuses = radiuses;
+  const response = await fetch(ORS_DIRECTIONS_URL + params.profile, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: apiKey,
+      Authorization: params.apiKey,
     },
-    body: JSON.stringify({
-      coordinates,
-      instructions: false,
-      units: 'm',
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    return {
-      coordinates: points.map((point) => [point.latitude, point.longitude]),
-      warnings: ['Falling back to straight-line geometry while fetching detailed route.'],
-      error: 'OpenRouteService directions responded with status ' + response.status + ': ' + errorText,
-    };
+    return { failure: parseOrsFailure(response.status, await response.text()) };
   }
 
   const payload = await response.json();
   const route = payload?.routes?.[0];
   const geometryPayload = route?.geometry;
   let geometry: [number, number][] | undefined;
-  let warnings: string[] = [];
+  const warnings: string[] = [];
 
   if (Array.isArray(geometryPayload)) {
     geometry = geometryPayload
@@ -251,11 +283,7 @@ const fetchRouteGeometryChunk = async (params: RouteGeometryParams): Promise<Rou
   }
 
   if (!geometry || geometry.length === 0) {
-    return {
-      coordinates: points.map((point) => [point.latitude, point.longitude]),
-      warnings: [...warnings, 'Detailed route geometry unavailable; displaying straight-line approximation.'],
-      error: 'OpenRouteService directions response did not contain usable geometry.',
-    };
+    return { failure: { status: response.status, message: 'the response did not contain a usable route geometry' } };
   }
 
   // Drop consecutive duplicates only: a loop legitimately revisits its first coordinate.
@@ -264,13 +292,81 @@ const fetchRouteGeometryChunk = async (params: RouteGeometryParams): Promise<Rou
     const previous = geometry![index - 1];
     return pair[0].toFixed(6) !== previous[0].toFixed(6) || pair[1].toFixed(6) !== previous[1].toFixed(6);
   });
+  return { geometry, warnings };
+};
 
-  if (warnings.length === 0) await orsDirectionsCache.set(cacheKey, geometry);
+interface SegmentContext {
+  /** Whether retrying an unroutable stop with an unlimited snapping radius is still worth a request. */
+  tryWiderRadius: boolean;
+  warnings: string[];
+  errors: string[];
+}
 
-  return {
-    coordinates: geometry,
-    warnings,
-  };
+const addOnce = (list: string[], message: string) => {
+  if (!list.includes(message)) list.push(message);
+};
+
+/**
+ * Road geometry through the ordered points. When ORS cannot route a stop (no road within its
+ * snapping radius) or a leg (no route at all), only the legs touching it are drawn as straight
+ * lines; the rest of the itinerary is still requested, in smaller pieces, and drawn on roads.
+ */
+const routeSegment = async (
+  params: RouteGeometryParams,
+  points: CoordinatePoint[],
+  context: SegmentContext
+): Promise<[number, number][]> => {
+  if (points.length < 2) return straightLine(points);
+
+  const cacheKey = params.profile + '|' + points.map((point) => coordinateKey(point.latitude, point.longitude)).join(';');
+  const cached = await orsDirectionsCache.get(cacheKey);
+  if (cached) return cached;
+
+  let outcome = await requestDirections(params, points);
+
+  if ('failure' in outcome && outcome.failure.point !== undefined && context.tryWiderRadius) {
+    // The stop is off the road network (a beach, a trail, a park): look for the nearest road
+    // without a distance limit before giving up on it.
+    const point = outcome.failure.point;
+    const retry = await requestDirections(
+      params,
+      points,
+      points.map((_, index) => (index === point ? -1 : ORS_DEFAULT_SNAP_RADIUS))
+    );
+    if ('geometry' in retry) outcome = retry;
+    else context.tryWiderRadius = false;
+  }
+
+  if ('geometry' in outcome) {
+    outcome.warnings.forEach((warning) => addOnce(context.warnings, warning));
+    if (outcome.warnings.length === 0) await orsDirectionsCache.set(cacheKey, outcome.geometry);
+    return outcome.geometry;
+  }
+
+  const { failure } = outcome;
+  const { point, leg } = failure;
+  if (point !== undefined && point >= 0 && point < points.length) {
+    addOnce(
+      context.warnings,
+      'No road found near stop ' + stopName(points[point]) + ' for this travel mode, so the legs to and from it are drawn as straight lines.'
+    );
+    const before = await routeSegment(params, points.slice(0, point), context);
+    const after = await routeSegment(params, points.slice(point + 1), context);
+    return [...before, straightLine([points[point]])[0], ...after];
+  }
+  if (leg && leg[0] >= 0 && leg[0] < leg[1] && leg[1] < points.length) {
+    addOnce(
+      context.warnings,
+      'No route found between ' + stopName(points[leg[0]]) + ' and ' + stopName(points[leg[1]]) + ', so that leg is drawn as a straight line.'
+    );
+    const before = await routeSegment(params, points.slice(0, leg[0] + 1), context);
+    const after = await routeSegment(params, points.slice(leg[1]), context);
+    return [...before, ...after];
+  }
+
+  addOnce(context.warnings, 'Detailed route unavailable; drawing straight lines between stops instead.');
+  addOnce(context.errors, 'OpenRouteService directions failed (HTTP ' + failure.status + '): ' + failure.message);
+  return straightLine(points);
 };
 
 /**
@@ -279,18 +375,17 @@ const fetchRouteGeometryChunk = async (params: RouteGeometryParams): Promise<Rou
  */
 export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<RouteGeometryResult> => {
   const { points } = params;
-  if (points.length <= ORS_MAX_DIRECTIONS_WAYPOINTS) {
-    return fetchRouteGeometryChunk(params);
-  }
+  const context: SegmentContext = { tryWiderRadius: true, warnings: [], errors: [] };
   const coordinates: [number, number][] = [];
-  const warnings: string[] = [];
-  const errors: string[] = [];
+  if (points.length < 2) return { coordinates: straightLine(points), warnings: [] };
   for (let start = 0; start < points.length - 1; start += ORS_MAX_DIRECTIONS_WAYPOINTS - 1) {
     const chunk = points.slice(start, start + ORS_MAX_DIRECTIONS_WAYPOINTS);
-    const result = await fetchRouteGeometryChunk({ ...params, points: chunk });
-    coordinates.push(...(coordinates.length > 0 ? result.coordinates.slice(1) : result.coordinates));
-    warnings.push(...result.warnings.filter((warning) => !warnings.includes(warning)));
-    if (result.error) errors.push(result.error);
+    const geometry = await routeSegment(params, chunk, context);
+    coordinates.push(...(coordinates.length > 0 ? geometry.slice(1) : geometry));
   }
-  return { coordinates, warnings, error: errors.length > 0 ? errors.join(' ') : undefined };
+  return {
+    coordinates,
+    warnings: context.warnings,
+    error: context.errors.length > 0 ? context.errors.join(' ') : undefined,
+  };
 };
