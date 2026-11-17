@@ -44,7 +44,7 @@ describe('OpenRouteService', () => {
       JSON.stringify({ error: { code: 2010, message: 'Could not find routable point within a radius of 350.0 meters of specified coordinate ' + index + ': 5.4433692 43.2131160.' } }),
   });
 
-  it('retries an off-road stop with an unlimited snapping radius', async () => {
+  it('retries an off-road stop with a wider snapping radius', async () => {
     mockFetch().mockImplementation(async (_url: string, init: { body: string }) => {
       const body = JSON.parse(init.body);
       if (!body.radiuses) return unroutable(2);
@@ -52,7 +52,7 @@ describe('OpenRouteService', () => {
     });
     const result = await fetchRouteGeometry({ apiKey: 'k', profile: 'driving-car', points: points(5).map((p) => ({ ...p, latitude: p.latitude + 1 })) });
     expect(mockFetch()).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(mockFetch().mock.calls[1][1].body).radiuses).toEqual([350, 350, -1, 350, 350]);
+    expect(JSON.parse(mockFetch().mock.calls[1][1].body).radiuses).toEqual([350, 350, 2000, 350, 350]);
     expect(result.coordinates).toHaveLength(5);
     expect(result.warnings).toEqual([]);
     expect(result.error).toBeUndefined();
@@ -78,6 +78,27 @@ describe('OpenRouteService', () => {
       'No road found near stop “P3” for this travel mode, so the legs to and from it are drawn as straight lines.',
     ]);
     expect(result.error).toBeUndefined();
+  });
+
+  it('splits the itinerary when the ORS proxy fails with HTTP 500', async () => {
+    const stops = points(8).map((p) => ({ ...p, latitude: p.latitude + 4 }));
+    const broken = [stops[5], stops[6]].map((p) => p.latitude);
+    mockFetch().mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body);
+      const lats = body.coordinates.map((c: number[]) => c[1]);
+      // Fails for any request that contains the leg 5 -> 6.
+      if (lats.some((lat: number, i: number) => lat === broken[0] && lats[i + 1] === broken[1])) {
+        return { ok: false, status: 500, text: async () => JSON.stringify({ error: 'There was a problem proxying the request' }) };
+      }
+      return { ok: true, json: async () => ({ routes: [{ geometry: body.coordinates }] }) };
+    });
+    const result = await fetchRouteGeometry({ apiKey: 'k', profile: 'driving-car', points: stops });
+    expect(result.warnings).toEqual(['No detailed route between “P5” and “P6”, so that leg is drawn as a straight line.']);
+    expect(result.error).toBe('OpenRouteService directions failed (HTTP 500): There was a problem proxying the request');
+    // Every stop is still on the line, in order.
+    const lats = result.coordinates.map((c) => c[0]);
+    expect(stops.every((s) => lats.includes(s.latitude))).toBe(true);
+    expect(mockFetch().mock.calls.length).toBeLessThanOrEqual(30);
   });
 
   it('turns other ORS errors into a readable message', async () => {
