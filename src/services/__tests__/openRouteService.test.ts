@@ -101,6 +101,23 @@ describe('OpenRouteService', () => {
     expect(mockFetch().mock.calls.length).toBeLessThanOrEqual(30);
   });
 
+  it('gives up after two requests when ORS is down', async () => {
+    mockFetch().mockResolvedValue({ ok: false, status: 500, text: async () => JSON.stringify({ error: 'There was a problem proxying the request' }) });
+    const stops = points(22).map((p) => ({ ...p, latitude: p.latitude + 5 }));
+    const result = await fetchRouteGeometry({ apiKey: 'k', profile: 'driving-car', points: stops });
+    expect(mockFetch()).toHaveBeenCalledTimes(2);
+    expect(result.coordinates).toHaveLength(22);
+    expect(result.warnings).toEqual(['OpenRouteService is not answering right now, so the route is drawn as straight lines. Try again later.']);
+  });
+
+  it('gives up after two timeouts', async () => {
+    mockFetch().mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+    const stops = points(6).map((p) => ({ ...p, latitude: p.latitude + 6 }));
+    const result = await fetchRouteGeometry({ apiKey: 'k', profile: 'driving-car', points: stops });
+    expect(mockFetch()).toHaveBeenCalledTimes(2);
+    expect(result.coordinates).toHaveLength(6);
+  });
+
   it('turns other ORS errors into a readable message', async () => {
     mockFetch().mockResolvedValue({ ok: false, status: 403, text: async () => JSON.stringify({ error: 'Access to this API has been disallowed' }) });
     const result = await fetchRouteGeometry({ apiKey: 'k', profile: 'driving-car', points: points(3).map((p) => ({ ...p, latitude: p.latitude + 3 })) });

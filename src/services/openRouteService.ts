@@ -198,6 +198,10 @@ const ORS_DEFAULT_SNAP_RADIUS = 350;
 const ORS_WIDE_SNAP_RADIUS = 2000;
 /** Upper bound on directions requests for one itinerary, to stay well under the ORS rate limit. */
 const ORS_MAX_DIRECTIONS_REQUESTS = 30;
+/** A directions request taking longer than this is abandoned (the proxy can hang before a 500). */
+const ORS_DIRECTIONS_TIMEOUT_MS = 15_000;
+/** After this many timeouts, ORS is treated as down for this route. */
+const ORS_MAX_TIMEOUTS = 2;
 
 interface OrsFailure {
   status: number;
@@ -206,6 +210,8 @@ interface OrsFailure {
   point?: number;
   /** Indexes (in the request) of two waypoints with no route between them (ORS error 2009). */
   leg?: [number, number];
+  /** Not sent: ORS failed repeatedly on this route, so it is considered down. */
+  down?: boolean;
 }
 
 type DirectionsOutcome = { geometry: [number, number][]; warnings: string[] } | { failure: OrsFailure };
@@ -252,6 +258,7 @@ const requestDirections = async (
   };
   if (radiuses) body.radiuses = radiuses;
   const response = await fetch(ORS_DIRECTIONS_URL + params.profile, {
+    signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(ORS_DIRECTIONS_TIMEOUT_MS) : undefined,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -307,6 +314,11 @@ interface SegmentContext {
   tryWiderRadius: boolean;
   /** Directions requests still allowed for this itinerary. */
   budget: number;
+  /** Whether ORS has returned a route at least once, so it is up. */
+  verified: boolean;
+  /** Whether ORS is considered down: no more requests are sent. */
+  down: boolean;
+  timeouts: number;
   warnings: string[];
   errors: string[];
 }
@@ -315,6 +327,9 @@ const addOnce = (list: string[], message: string) => {
   if (!list.includes(message)) list.push(message);
 };
 
+const segmentCacheKey = (profile: string, points: CoordinatePoint[]) =>
+  profile + '|' + points.map((point) => coordinateKey(point.latitude, point.longitude)).join(';');
+
 /** One directions request, unless this itinerary has used up its request budget. */
 const requestWithinBudget = async (
   params: RouteGeometryParams,
@@ -322,15 +337,23 @@ const requestWithinBudget = async (
   context: SegmentContext,
   radiuses?: number[]
 ): Promise<DirectionsOutcome> => {
+  if (context.down) {
+    return { failure: { status: 503, message: 'the service is not responding right now', down: true } };
+  }
   if (context.budget <= 0) {
     return { failure: { status: 429, message: 'too many directions requests for one route; try again in a minute' } };
   }
   context.budget -= 1;
+  let outcome: DirectionsOutcome;
   try {
-    return await requestDirections(params, points, radiuses);
+    outcome = await requestDirections(params, points, radiuses);
   } catch (error) {
-    return { failure: { status: 0, message: error instanceof Error ? error.message : 'network error' } };
+    const timedOut = error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    if (timedOut && ++context.timeouts >= ORS_MAX_TIMEOUTS) context.down = true;
+    outcome = { failure: { status: 0, message: timedOut ? 'no answer after ' + ORS_DIRECTIONS_TIMEOUT_MS / 1000 + ' s' : error instanceof Error ? error.message : 'network error' } };
   }
+  if ('geometry' in outcome) context.verified = true;
+  return outcome;
 };
 
 /**
@@ -345,7 +368,7 @@ const routeSegment = async (
 ): Promise<[number, number][]> => {
   if (points.length < 2) return straightLine(points);
 
-  const cacheKey = params.profile + '|' + points.map((point) => coordinateKey(point.latitude, point.longitude)).join(';');
+  const cacheKey = segmentCacheKey(params.profile, points);
   const cached = await orsDirectionsCache.get(cacheKey);
   if (cached) return cached;
 
@@ -395,8 +418,26 @@ const routeSegment = async (
   // A server-side failure (the public API's proxy sometimes answers HTTP 500 for a whole
   // itinerary) or a network error: route each half separately, so that only the part that keeps
   // failing is drawn as straight lines.
+  if (failure.down) {
+    addOnce(context.warnings, 'OpenRouteService is not answering right now, so the rest of the route is drawn as straight lines. Try again later.');
+    return straightLine(points);
+  }
   const serverSide = failure.status === 0 || failure.status >= 500;
-  if (serverSide && points.length > 2 && context.budget > 0) {
+  if (serverSide && points.length > 2 && !context.verified && !context.down) {
+    // Nothing has worked yet: check with a single leg that ORS is up before splitting further,
+    // so that an outage costs two requests rather than thirty.
+    const middle = Math.floor((points.length - 1) / 2);
+    const leg = points.slice(middle, middle + 2);
+    const probe = await requestWithinBudget(params, leg, context);
+    if ('failure' in probe) {
+      context.down = true;
+      addOnce(context.warnings, 'OpenRouteService is not answering right now, so the route is drawn as straight lines. Try again later.');
+      addOnce(context.errors, 'OpenRouteService directions failed (HTTP ' + failure.status + '): ' + failure.message);
+      return straightLine(points);
+    }
+    if (probe.warnings.length === 0) await orsDirectionsCache.set(segmentCacheKey(params.profile, leg), probe.geometry);
+  }
+  if (serverSide && points.length > 2 && context.budget > 0 && !context.down) {
     const middle = Math.floor(points.length / 2);
     const before = await routeSegment(params, points.slice(0, middle + 1), context);
     const after = await routeSegment(params, points.slice(middle), context);
@@ -422,7 +463,7 @@ const routeSegment = async (
  */
 export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<RouteGeometryResult> => {
   const { points } = params;
-  const context: SegmentContext = { tryWiderRadius: true, budget: ORS_MAX_DIRECTIONS_REQUESTS, warnings: [], errors: [] };
+  const context: SegmentContext = { tryWiderRadius: true, budget: ORS_MAX_DIRECTIONS_REQUESTS, verified: false, down: false, timeouts: 0, warnings: [], errors: [] };
   const coordinates: [number, number][] = [];
   if (points.length < 2) return { coordinates: straightLine(points), warnings: [] };
   for (let start = 0; start < points.length - 1; start += ORS_MAX_DIRECTIONS_WAYPOINTS - 1) {

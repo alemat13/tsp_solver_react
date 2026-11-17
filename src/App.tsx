@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardPaste, Loader2, LocateFixed, Maximize2, MousePointerClick, Route, Settings2, Sparkles, Trash2, X } from 'lucide-react';
 import { MapInsets, MapView } from './components/MapView';
 import { Sheet, SheetSnap } from './components/Sheet';
@@ -208,6 +208,9 @@ export const App = () => {
     if (window.confirm('Remove all stops?')) updateStops(() => ({ points: [] }));
   };
 
+  /** Incremented on every solve, so that a late route geometry never overwrites a newer result. */
+  const solveToken = useRef(0);
+
   const solve = async () => {
     const { travelMode, solverMode, objective, googleApiKey, orsApiKey, exactTimeLimitSeconds } = settings;
     const { points, startId, endId } = active;
@@ -239,11 +242,29 @@ export const App = () => {
       const warnings = [...preWarnings, ...matrixResult.warnings, ...result.warnings];
       if (matrixResult.error) warnings.push(matrixResult.error);
 
-      let geometry: [number, number][] = result.orderedPoints.map((point) => [point.latitude, point.longitude]);
-      let transitLegs: (TransitLeg | undefined)[] | undefined;
+      const legs = computeLegs(result.orderedPoints, matrixResult.data, points);
       const provider = matrixResult.data.provider;
+      const solved: Solution = {
+        result,
+        notes,
+        warnings,
+        legs,
+        provider: PROVIDER_LABELS[provider],
+        geometry: result.orderedPoints.map((point) => [point.latitude, point.longitude]),
+      };
+      // Show the order right away with straight lines; the road geometry follows when it arrives.
+      const token = ++solveToken.current;
+      setSolution(solved);
+      setTab('result');
+      setFitRequest((count) => count + 1);
+      if (!desktop) setSnap('half');
+      setIsSolving(false);
+
       const key = provider === 'google' ? googleApiKey : orsApiKey;
       if (key && provider !== 'haversine') {
+        const routeWarnings: string[] = [];
+        let geometry = solved.geometry;
+        let transitLegs: (TransitLeg | undefined)[] | undefined;
         try {
           let geometryResult: { coordinates: [number, number][]; warnings: string[]; error?: string };
           if (provider === 'google') {
@@ -254,24 +275,25 @@ export const App = () => {
             geometryResult = await fetchORSRouteGeometry({ apiKey: orsApiKey, profile: travelMode, points: result.orderedPoints });
           }
           if (geometryResult.coordinates.length > 1) geometry = geometryResult.coordinates;
-          warnings.push(...geometryResult.warnings);
-          if (geometryResult.error) warnings.push(geometryResult.error);
+          routeWarnings.push(...geometryResult.warnings);
+          if (geometryResult.error) routeWarnings.push(geometryResult.error);
         } catch (routeError) {
-          warnings.push('Detailed route geometry unavailable: ' + (routeError instanceof Error ? routeError.message : 'unknown error'));
+          routeWarnings.push('Detailed route geometry unavailable: ' + (routeError instanceof Error ? routeError.message : 'unknown error'));
+        }
+        // Ignore the answer if the user has solved again (or cleared the result) meanwhile.
+        if (token === solveToken.current) {
+          setSolution((current) =>
+            current === solved
+              ? {
+                  ...solved,
+                  geometry,
+                  warnings: [...solved.warnings, ...routeWarnings],
+                  legs: legs.map((leg, i) => (transitLegs?.[i] ? { ...leg, transit: transitLegs[i] } : leg)),
+                }
+              : current
+          );
         }
       }
-
-      setSolution({
-        result,
-        notes,
-        warnings,
-        legs: computeLegs(result.orderedPoints, matrixResult.data, points).map((leg, i) => (transitLegs?.[i] ? { ...leg, transit: transitLegs[i] } : leg)),
-        provider: PROVIDER_LABELS[provider],
-        geometry,
-      });
-      setTab('result');
-      setFitRequest((count) => count + 1);
-      if (!desktop) setSnap('half');
     } catch (solveError) {
       setError(solveError instanceof Error ? solveError.message : 'Unexpected error while solving the route.');
     } finally {
