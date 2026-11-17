@@ -191,6 +191,13 @@ const decodePolyline = (polyline: string, precision = 5): [number, number][] => 
 
 /** ORS snaps each waypoint to a road within this radius (metres) unless told otherwise. */
 const ORS_DEFAULT_SNAP_RADIUS = 350;
+/**
+ * Radius (metres) tried again for a stop ORS could not snap. A finite value rather than -1
+ * (unlimited), which can make the public API's proxy time out with an HTTP 500.
+ */
+const ORS_WIDE_SNAP_RADIUS = 2000;
+/** Upper bound on directions requests for one itinerary, to stay well under the ORS rate limit. */
+const ORS_MAX_DIRECTIONS_REQUESTS = 30;
 
 interface OrsFailure {
   status: number;
@@ -298,12 +305,32 @@ const requestDirections = async (
 interface SegmentContext {
   /** Whether retrying an unroutable stop with an unlimited snapping radius is still worth a request. */
   tryWiderRadius: boolean;
+  /** Directions requests still allowed for this itinerary. */
+  budget: number;
   warnings: string[];
   errors: string[];
 }
 
 const addOnce = (list: string[], message: string) => {
   if (!list.includes(message)) list.push(message);
+};
+
+/** One directions request, unless this itinerary has used up its request budget. */
+const requestWithinBudget = async (
+  params: RouteGeometryParams,
+  points: CoordinatePoint[],
+  context: SegmentContext,
+  radiuses?: number[]
+): Promise<DirectionsOutcome> => {
+  if (context.budget <= 0) {
+    return { failure: { status: 429, message: 'too many directions requests for one route; try again in a minute' } };
+  }
+  context.budget -= 1;
+  try {
+    return await requestDirections(params, points, radiuses);
+  } catch (error) {
+    return { failure: { status: 0, message: error instanceof Error ? error.message : 'network error' } };
+  }
 };
 
 /**
@@ -322,16 +349,17 @@ const routeSegment = async (
   const cached = await orsDirectionsCache.get(cacheKey);
   if (cached) return cached;
 
-  let outcome = await requestDirections(params, points);
+  let outcome = await requestWithinBudget(params, points, context);
 
   if ('failure' in outcome && outcome.failure.point !== undefined && context.tryWiderRadius) {
-    // The stop is off the road network (a beach, a trail, a park): look for the nearest road
-    // without a distance limit before giving up on it.
+    // The stop is off the road network (a beach, a trail, a park): look for a road further
+    // away before giving up on it.
     const point = outcome.failure.point;
-    const retry = await requestDirections(
+    const retry = await requestWithinBudget(
       params,
       points,
-      points.map((_, index) => (index === point ? -1 : ORS_DEFAULT_SNAP_RADIUS))
+      context,
+      points.map((_, index) => (index === point ? ORS_WIDE_SNAP_RADIUS : ORS_DEFAULT_SNAP_RADIUS))
     );
     if ('geometry' in retry) outcome = retry;
     else context.tryWiderRadius = false;
@@ -364,6 +392,25 @@ const routeSegment = async (
     return [...before, ...after];
   }
 
+  // A server-side failure (the public API's proxy sometimes answers HTTP 500 for a whole
+  // itinerary) or a network error: route each half separately, so that only the part that keeps
+  // failing is drawn as straight lines.
+  const serverSide = failure.status === 0 || failure.status >= 500;
+  if (serverSide && points.length > 2 && context.budget > 0) {
+    const middle = Math.floor(points.length / 2);
+    const before = await routeSegment(params, points.slice(0, middle + 1), context);
+    const after = await routeSegment(params, points.slice(middle), context);
+    return [...before, ...after];
+  }
+  if (serverSide && points.length === 2) {
+    addOnce(
+      context.warnings,
+      'No detailed route between ' + stopName(points[0]) + ' and ' + stopName(points[1]) + ', so that leg is drawn as a straight line.'
+    );
+    addOnce(context.errors, 'OpenRouteService directions failed (HTTP ' + failure.status + '): ' + failure.message);
+    return straightLine(points);
+  }
+
   addOnce(context.warnings, 'Detailed route unavailable; drawing straight lines between stops instead.');
   addOnce(context.errors, 'OpenRouteService directions failed (HTTP ' + failure.status + '): ' + failure.message);
   return straightLine(points);
@@ -375,7 +422,7 @@ const routeSegment = async (
  */
 export const fetchRouteGeometry = async (params: RouteGeometryParams): Promise<RouteGeometryResult> => {
   const { points } = params;
-  const context: SegmentContext = { tryWiderRadius: true, warnings: [], errors: [] };
+  const context: SegmentContext = { tryWiderRadius: true, budget: ORS_MAX_DIRECTIONS_REQUESTS, warnings: [], errors: [] };
   const coordinates: [number, number][] = [];
   if (points.length < 2) return { coordinates: straightLine(points), warnings: [] };
   for (let start = 0; start < points.length - 1; start += ORS_MAX_DIRECTIONS_WAYPOINTS - 1) {
