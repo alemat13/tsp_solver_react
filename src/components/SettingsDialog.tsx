@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import { ChevronDown, Database, ExternalLink, KeyRound } from 'lucide-react';
 import { clearApiCache, countApiCacheEntries } from '../services/apiCache';
 import { Modal } from './Modal';
+import { DiagnosticsSection } from './DiagnosticLog';
 import { Settings } from '../state/usePersistentState';
 import { SolverMode } from '../types';
 import { describeBruteForceEstimate } from '../utils/solverEstimate';
@@ -242,5 +243,6 @@ export const SettingsDialog = ({ open, onClose, settings, onChange, pointCount }
     </section>
 
     <CacheSection open={open} />
+    <DiagnosticsSection />
   </Modal>
 );
