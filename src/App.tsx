@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ClipboardPaste, Loader2, LocateFixed, Maximize2, MousePointerClick, Route, Settings2, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, ClipboardPaste, Link2, Loader2, LocateFixed, Maximize2, MousePointerClick, Route, Settings2, Sparkles, Trash2, X } from 'lucide-react';
 import { MapInsets, MapView } from './components/MapView';
 import { Sheet, SheetSnap } from './components/Sheet';
 import { StopSearch } from './components/StopSearch';
@@ -47,7 +47,7 @@ const computeLegs = (route: CoordinatePoint[], matrix: MatrixData, points: Coord
 };
 
 export const App = () => {
-  const [{ settings, stops }, setState] = usePersistentState();
+  const [{ settings, stops }, setState, autoSolve] = usePersistentState();
   const { points, startId, endId } = stops;
   // Skipped stops stay in the list but are left out of the matrix, the solver and every export.
   const active = useMemo(() => activeStops(stops), [stops]);
@@ -301,6 +301,35 @@ export const App = () => {
     }
   };
 
+  // A link with `solve=1` optimises the route as soon as the page opens (once).
+  const autoSolvePending = useRef(autoSolve);
+  useEffect(() => {
+    if (!autoSolvePending.current) return;
+    autoSolvePending.current = false;
+    void solve();
+  });
+
+  const [linkCopied, setLinkCopied] = useState(false);
+  /** The address bar always holds the current route, so sharing it is sharing the route. */
+  const shareLink = async () => {
+    const url = window.location.href;
+    if (!desktop && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: 'TSP Planner route', url });
+        return;
+      } catch (shareError) {
+        if (shareError instanceof DOMException && shareError.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      setError('Could not copy the link. Copy it from the address bar instead.');
+    }
+  };
+
   const insets: MapInsets = useMemo(
     () => (desktop ? { top: 0, right: 56, bottom: 0, left: 0 } : { top: 64, right: 0, bottom: sheetCover, left: 0 }),
     [desktop, sheetCover]
@@ -485,6 +514,15 @@ export const App = () => {
                 </div>
                 <div className="stops-toolbar">
                   <TripTypeSwitch isLoop={isLoop} onChange={setLoop} disabled={points.length < 2} />
+                  <button
+                    type="button"
+                    className={'icon-button' + (linkCopied ? ' icon-button--done' : '')}
+                    onClick={shareLink}
+                    aria-label={linkCopied ? 'Link copied' : 'Share a link to this route'}
+                    title={linkCopied ? 'Link copied' : 'Share a link to this route'}
+                  >
+                    {linkCopied ? <Check size={18} /> : <Link2 size={18} />}
+                  </button>
                   <button type="button" className="icon-button" onClick={() => setImportOpen(true)} aria-label="Import a list" title="Import / export a list">
                     <ClipboardPaste size={18} />
                   </button>

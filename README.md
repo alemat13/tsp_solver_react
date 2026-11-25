@@ -14,8 +14,41 @@ This project provides an interactive interface for users to define a set of "cit
 *   **Performance Metrics**: View the total distance of the calculated path and the time taken to compute it.
 *   **Exact solvers**: Held-Karp (up to 17 points) and a Concorde-style branch-and-cut on HiGHS (WebAssembly) that proves optimality for itineraries up to ~80 stops, with loops or open paths (start ≠ end).
 *   **Export**: GPX, KML and Google Maps links for the optimised route.
+*   **Shareable links**: the URL holds every route parameter (stops, start/end, travel mode, solver options), so other apps can deep-link to a route (see [Link to a route](#-link-to-a-route)).
 *   **Public Transport Routing**: Use the Google Routes API to compute routes using public transportation (bus, train, subway) via the new "Transit" travel mode.
 *   **Responsive Design**: Works on a wide range of screen sizes.
+
+## 🔗 Link to a route
+
+The address bar always holds the current route, so any page URL is a link to it: copy it, or use the
+**Share a link** button (🔗) above the stop list. Another app can also build such a link to open the
+planner with its own stops and travel mode. API keys are never part of the URL: whoever opens the link
+uses the keys saved in their own browser.
+
+```
+https://alemat13.github.io/tsp_solver_react/?mode=walk&stop=48.8584,2.2945,Eiffel%20Tower&stop=48.8606,2.3376,Louvre&stop=48.853,2.3499,Notre-Dame&start=1&end=3&solve=1
+```
+
+| Parameter | Value | Default when absent |
+|-----------|-------|---------------------|
+| `stop` | `lat,lng[,label]`, repeated once per stop, in order. Decimal degrees (WGS 84). The label is URL-encoded and may contain commas. | (the stops saved in the browser) |
+| `start` | 1-based position of the start stop in the `stop` list, or `first` / `last`. | the solver picks the best start |
+| `end` | 1-based position of the end stop, or `first` / `last`. | round trip back to the start |
+| `skip` | Comma-separated 1-based positions of stops kept in the list but left out of the route, e.g. `skip=2,5`. | none |
+| `mode` | `driving-car` (`car`), `driving-hgv` (`truck`), `cycling-regular` (`bike`), `cycling-electric` (`ebike`), `foot-walking` (`walk`), `foot-hiking` (`hike`), `transit`. | the saved mode |
+| `objective` | `distance` or `duration`. | the saved objective |
+| `solver` | `auto`, `exact`, `heuristic`, `genetic`, `brute-force`. | the saved solver |
+| `timeLimit` | Time limit of the exact solver, in seconds. | the saved limit |
+| `solve` | `1` to optimise the route as soon as the page opens. It is removed from the URL afterwards. | `0` |
+
+Notes:
+
+* When the URL contains at least one valid `stop`, its stops **replace** the list saved in the browser.
+  Without `stop`, the saved list is kept and only the given options are applied.
+* Invalid stops are ignored; `start`, `end` and `skip` still refer to positions in the URL's `stop` list.
+* Other query parameters (for example `utm_source`) are left untouched.
+* Transit needs a Google key and the other modes an OpenRouteService key; without one the planner
+  falls back to straight-line distances.
 
 ## 🔑 API Key Requirements
 

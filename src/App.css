@@ -96,6 +96,13 @@
   color: var(--text);
 }
 
+.icon-button--done,
+.icon-button--done:hover {
+  border-color: var(--start);
+  background: var(--start-soft);
+  color: var(--start);
+}
+
 .icon-button--ghost {
   border-color: transparent;
   background: transparent;
