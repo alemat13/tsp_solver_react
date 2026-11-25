@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CoordinatePoint, OptimizationObjective, SolverMode, TravelMode } from '../types';
 import { parseCoordinateLines } from '../utils/coordinateParser';
+import { buildRouteSearch, mergeRouteSearch, parseRouteUrl } from './urlState';
 
 export interface Settings {
   googleApiKey: string;
@@ -115,9 +116,28 @@ export const loadPersistedState = (): PersistedState => {
   return { settings: DEFAULT_SETTINGS, stops: { points: [] } };
 };
 
-/** Keeps settings and stops in React state and mirrors them to localStorage. */
+/**
+ * Saved state with the route parameters of the page URL applied on top: stops in the URL
+ * replace the saved list, and options in the URL override the saved ones (API keys always
+ * come from storage).
+ */
+export const loadInitialState = (search: string = typeof window === 'undefined' ? '' : window.location.search) => {
+  const saved = loadPersistedState();
+  const fromUrl = parseRouteUrl(search, newPointId);
+  const state: PersistedState = {
+    settings: { ...saved.settings, ...fromUrl.settings },
+    stops: fromUrl.stops ?? saved.stops,
+  };
+  return { state, autoSolve: fromUrl.autoSolve && !!fromUrl.stops };
+};
+
+/**
+ * Keeps settings and stops in React state, mirrors them to localStorage and to the page URL
+ * (so the address bar is always a link to the current route).
+ */
 export const usePersistentState = () => {
-  const [state, setState] = useState<PersistedState>(loadPersistedState);
+  const [initial] = useState(loadInitialState);
+  const [state, setState] = useState<PersistedState>(initial.state);
 
   useEffect(() => {
     try {
@@ -125,9 +145,16 @@ export const usePersistentState = () => {
     } catch {
       // Storage may be unavailable (private mode, quota); the app keeps working in memory.
     }
+    try {
+      const { location, history } = window;
+      const search = mergeRouteSearch(location.search, buildRouteSearch(state.settings, state.stops));
+      if (search !== location.search) history.replaceState(history.state, '', location.pathname + search + location.hash);
+    } catch {
+      // Some embedded contexts forbid history changes; the URL then simply is not updated.
+    }
   }, [state]);
 
-  return [state, setState] as const;
+  return [state, setState, initial.autoSolve] as const;
 };
 
 let idCounter = 0;
