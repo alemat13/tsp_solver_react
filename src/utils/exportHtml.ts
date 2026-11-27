@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Footprints, LucideIcon } from 'lucide-react';
 import { CoordinatePoint, SolveResult, TransitLeg, TransitRide, TravelMode } from '../types';
-import { describeOptimality, formatDistance, formatDuration, STRATEGY_LABELS } from '../ui/format';
+import { describeOptimality, formatDistance, formatDuration, formatLegValue, STRATEGY_LABELS } from '../ui/format';
+import { EstimatedTotal, estimateTotals } from './estimateTotals';
 import { travelModeOption } from '../ui/travelModes';
 import { formatClock, vehicleIcon } from '../components/TransitSteps';
 import { buildCitymapperLink, buildGoogleMapsLinks } from './exportRoute';
@@ -130,6 +131,12 @@ export const buildHtmlReport = (input: HtmlReportInput, assets: HtmlReportAssets
   const title = 'Route · ' + stopCount + ' stops · ' + mode.label;
   const googleLinks = buildGoogleMapsLinks(route, travelMode);
   const hasTransit = legs.some((leg) => leg.transit);
+  const totals = estimateTotals(route, legs);
+  const hasDurations = legs.some((leg) => leg.duration);
+  const totalText = (total: EstimatedTotal, format: (value: number) => string) =>
+    total.estimated > 0
+      ? '~' + format(total.total) + ' (' + (total.routed > 0 ? format(total.routed) + ' routed + ' : '') + format(total.estimated) + ' estimated)'
+      : format(total.total);
 
   const items = route
     .map((point, index) => {
@@ -141,7 +148,7 @@ export const buildHtmlReport = (input: HtmlReportInput, assets: HtmlReportAssets
       const role = isFirst ? 'Start' : isLast ? (isLoop ? 'Back to start' : 'End') : '';
       const legHtml =
         !isLast && leg
-          ? `<div class="leg"><span class="leg__summary">${escapeHtml(formatDistance(leg.distance))}${leg.duration ? ' · ' + escapeHtml(formatDuration(leg.duration)) : ''} · <a href="${escapeHtml(
+          ? `<div class="leg"><span class="leg__summary">${escapeHtml(formatLegValue(leg.distance, formatDistance, totals.perLeg[index]?.distance))}${hasDurations ? ' · ' + escapeHtml(formatLegValue(leg.duration, formatDuration, totals.perLeg[index]?.duration)) : ''} · <a href="${escapeHtml(
               buildCitymapperLink(route[index + 1], point)
             )}" target="_blank" rel="noreferrer">Citymapper</a></span>${
               leg.transit ? transitHtml(leg.transit) : ''
@@ -164,8 +171,8 @@ ${legHtml}
     .join('\n');
 
   const stats = [
-    ['Distance', formatDistance(result.totalDistance)],
-    ...(result.totalDuration ? [['Duration', formatDuration(result.totalDuration)]] : []),
+    ['Distance', totalText(totals.distance, formatDistance)],
+    ...(totals.duration ? [['Duration', totalText(totals.duration, formatDuration)]] : []),
     ['Stops', String(stopCount)],
     ['Mode', mode.label],
   ]
