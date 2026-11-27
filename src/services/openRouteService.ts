@@ -253,15 +253,38 @@ const describeOrsError = (status: number, body: string): { code?: number; messag
   return { message: text && text.length < 200 ? text : 'HTTP ' + status };
 };
 
-const parseOrsFailure = (status: number, body: string): OrsFailure => {
+/** Index of the request point closest to the given coordinates (as echoed in ORS messages). */
+const closestPoint = (points: CoordinatePoint[], longitude: number, latitude: number): number => {
+  let best = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  points.forEach((point, index) => {
+    const distance = Math.abs(point.longitude - longitude) + Math.abs(point.latitude - latitude);
+    if (distance < bestDistance) {
+      best = index;
+      bestDistance = distance;
+    }
+  });
+  return bestDistance < 1e-4 ? best : -1;
+};
+
+const parseOrsFailure = (status: number, body: string, points: CoordinatePoint[] = []): OrsFailure => {
   const { code, message } = describeOrsError(status, body);
   const failure: OrsFailure = { status, message };
   if (code === 2010) {
+    // "Could not find routable point within a radius of 350.0 meters of specified coordinate 2: ..." (0-based)
     const match = /coordinate (\d+)/.exec(message);
     if (match) failure.point = Number(match[1]);
   } else if (code === 2009) {
-    const match = /between points (\d+)\D.*?and (\d+)\D/.exec(message + ' ');
-    if (match) failure.leg = [Number(match[1]), Number(match[2])];
+    // "Unable to find a route between points 26 (7.5214140 43.7846990) and 27 (6.2020120 42.9992640)."
+    // These indexes are 1-based (unlike error 2010), so the echoed coordinates are trusted first.
+    const match = /between points (\d+)\s*(?:\(([-\d.]+)\s+([-\d.]+)\))?.*?and (\d+)\s*(?:\(([-\d.]+)\s+([-\d.]+)\))?/.exec(message);
+    if (match) {
+      const locate = (index: string, lon?: string, lat?: string) => {
+        const byCoordinates = lon !== undefined && lat !== undefined ? closestPoint(points, Number(lon), Number(lat)) : -1;
+        return byCoordinates >= 0 ? byCoordinates : Number(index) - 1;
+      };
+      failure.leg = [locate(match[1], match[2], match[3]), locate(match[4], match[5], match[6])];
+    }
   }
   return failure;
 };
@@ -292,7 +315,7 @@ const requestDirections = async (
   });
 
   if (!response.ok) {
-    return { failure: parseOrsFailure(response.status, await response.text()) };
+    return { failure: parseOrsFailure(response.status, await response.text(), points) };
   }
 
   const payload = await response.json();

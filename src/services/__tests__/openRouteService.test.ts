@@ -65,6 +65,40 @@ describe('OpenRouteService', () => {
     expect(result.coordinates).toHaveLength(60);
   });
 
+  it('routes the mainland on roads when island stops have no route (ORS 2009 uses 1-based indexes)', async () => {
+    // 10 mainland stops, then 3 island stops (the last one reachable from nothing), then back.
+    const stops = [
+      ...points(10),
+      { id: 'i1', label: 'Island 1', latitude: 43.0, longitude: 6.2 },
+      { id: 'i2', label: 'Island 2', latitude: 43.001, longitude: 6.2 },
+      { id: 'i3', label: 'Island 3', latitude: 43.002, longitude: 6.2 },
+      { ...points(1)[0], id: 'back' },
+    ];
+    const island = (c: number[]) => c[1] < 43.5;
+    const requests: number[][][] = [];
+    mockFetch().mockImplementation(async (_url: string, init: { body: string }) => {
+      const coordinates: number[][] = JSON.parse(init.body).coordinates;
+      requests.push(coordinates);
+      const bad = coordinates.findIndex((c, i) => {
+        const next = coordinates[i + 1];
+        return next !== undefined && (island(c) !== island(next) || (island(c) && (c[1] === 43.002 || next[1] === 43.002)));
+      });
+      if (bad >= 0) {
+        const [a, b] = [coordinates[bad], coordinates[bad + 1]];
+        const message = `Route could not be found - Unable to find a route between points ${bad + 1} (${a[0].toFixed(7)} ${a[1].toFixed(7)}) and ${bad + 2} (${b[0].toFixed(7)} ${b[1].toFixed(7)}).`;
+        return { ok: false, status: 404, text: async () => JSON.stringify({ error: { code: 2009, message } }) };
+      }
+      return { ok: true, json: async () => ({ routes: [{ geometry: coordinates }] }) };
+    });
+    const result = await fetchRouteGeometry({ apiKey: 'k', profile: 'driving-car', points: stops });
+    // The 10 mainland stops are routed in one successful request.
+    expect(requests.some((coordinates) => coordinates.length === 10 && !coordinates.some(island))).toBe(true);
+    expect(requests.length).toBeLessThanOrEqual(8);
+    expect(result.coordinates).toHaveLength(stops.length);
+    expect(result.warnings.join(' ')).toMatch(/No route found between “P9” and “Island 1”/);
+    expect(result.warnings.join(' ')).not.toMatch(/Detailed route unavailable/);
+  });
+
   const unroutable = (index: number) => ({
     ok: false,
     status: 404,

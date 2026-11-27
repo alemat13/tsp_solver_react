@@ -1,3 +1,4 @@
+import { haversineDistance } from '../utils/distance';
 import { SolveRequest } from '../types';
 
 /**
@@ -40,7 +41,9 @@ export const resolveEndpoints = (request: SolveRequest) => {
 /**
  * Picks the matrix to minimise and replaces unusable entries (null, NaN, Infinity: pairs the
  * routing service could not connect) by a large finite penalty, so every solver keeps working
- * and only uses such a leg when there is no alternative.
+ * and only uses such a leg when there is no alternative. Ten times the straight-line length of
+ * the leg is added to the penalty, so that an unavoidable crossing (to an island, say) is made
+ * where it is shortest, and the rest of the trip stays on roads.
  */
 export const objectiveMatrix = (request: SolveRequest): number[][] => {
   const { matrix, objective } = request;
@@ -52,7 +55,17 @@ export const objectiveMatrix = (request: SolveRequest): number[][] => {
     }
   }
   const penalty = Math.max(1, maxFinite) * Math.max(10, source.length * 10);
-  return source.map((row) => row.map((value) => (typeof value === 'number' && Number.isFinite(value) ? value : penalty)));
+  // Ten times the straight-line metres, or seconds at 50 km/h for a duration objective.
+  const scale = (source === matrix.distances ? 1 : 1 / 13.9) * 10;
+  const { points } = request;
+  return source.map((row, i) =>
+    row.map((value, j) => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      const a = points[i];
+      const b = points[j];
+      return a && b ? penalty + Math.round(haversineDistance(a, b) * scale) : penalty;
+    })
+  );
 };
 
 export const usesDurationObjective = (request: SolveRequest) => request.objective === 'duration' && !!request.matrix.durations;
