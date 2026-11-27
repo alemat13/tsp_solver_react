@@ -2,6 +2,7 @@ import { CoordinatePoint, MatrixData, TransitLeg, TransitRide, TransitStep, Trav
 import { buildHaversineMatrix } from '../utils/distance';
 import { coordinateKey, googleLegCache, googleMatrixCache, googleTransitLegCache, PairValue } from './apiCache';
 import { readCachedMatrix, tileBlock } from './matrixCache';
+import { abortError, timeoutSignal } from '../utils/async';
 
 /**
  * Google public-transport routing through the Routes API.
@@ -24,7 +25,12 @@ export interface MatrixFetchParams {
   apiKey?: string;
   profile: TravelMode; // expected to be 'transit'
   points: CoordinatePoint[];
+  /** Aborts the requests (the user cancelled). */
+  signal?: AbortSignal;
 }
+
+/** The whole transit matrix must arrive within this delay, otherwise straight lines are used. */
+export const GOOGLE_MATRIX_TIMEOUT_MS = 45_000;
 
 export interface MatrixFetchResult {
   data: MatrixData;
@@ -88,9 +94,10 @@ const runLimited = async <T>(tasks: (() => Promise<T>)[], limit: number): Promis
 
 class GoogleApiError extends Error {}
 
-const postJson = async (url: string, apiKey: string, fieldMask: string, body: unknown) => {
+const postJson = async (url: string, apiKey: string, fieldMask: string, body: unknown, signal?: AbortSignal) => {
   const response = await fetch(url, {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': apiKey,
@@ -119,6 +126,7 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
   // allow storing distances or durations), so only new rows and columns are billed.
   const { distances, durations: cachedDurations, keys, blocks } = await readCachedMatrix(googleMatrixCache, params.profile, points);
   const durations = cachedDurations as number[][];
+  const timeout = timeoutSignal(GOOGLE_MATRIX_TIMEOUT_MS, params.signal);
 
   const tasks = blocks.flatMap((block) => tileBlock(block, TRANSIT_MATRIX_BLOCK, TRANSIT_MATRIX_BLOCK)).map(({ sources, destinations }) => async () => {
     const payload = await postJson(
@@ -129,7 +137,8 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
         origins: sources.map((i) => toWaypoint(points[i])),
         destinations: destinations.map((j) => toWaypoint(points[j])),
         travelMode: 'TRANSIT',
-      }
+      },
+      timeout.signal
     );
     if (!Array.isArray(payload)) {
       throw new GoogleApiError('Invalid Google route matrix response format.');
@@ -152,9 +161,15 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
   try {
     await runLimited(tasks, MAX_PARALLEL_REQUESTS);
   } catch (e) {
+    if (params.signal?.aborted) throw abortError();
     const fallback = buildFallbackMatrix(params);
+    if (timeout.timedOut()) {
+      return { ...fallback, error: 'Google Routes API did not answer within ' + GOOGLE_MATRIX_TIMEOUT_MS / 1000 + ' s; straight-line distances used instead.' };
+    }
     const message = e instanceof Error ? e.message : String(e);
     return { ...fallback, error: e instanceof GoogleApiError ? message : `Google Routes API request failed: ${message}` };
+  } finally {
+    timeout.dispose();
   }
 
   for (const row of durations) for (let j = 0; j < row.length; j += 1) if (row[j] === undefined) row[j] = Infinity;
