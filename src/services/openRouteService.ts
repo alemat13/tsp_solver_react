@@ -2,6 +2,7 @@ import { CoordinatePoint, MatrixData, TravelMode } from '../types';
 import { buildHaversineMatrix } from '../utils/distance';
 import { coordinateKey, orsDirectionsCache, orsMatrixCache, PairValue } from './apiCache';
 import { readCachedMatrix, tileBlock } from './matrixCache';
+import { abortError, timeoutSignal } from '../utils/async';
 
 const ORS_BASE_URL = 'https://api.heigit.org/openrouteservice/v2/matrix/';
 /** Free-plan limits of the OpenRouteService API. */
@@ -12,7 +13,15 @@ export interface MatrixFetchParams {
   apiKey?: string;
   profile: TravelMode;
   points: CoordinatePoint[];
+  /** Aborts the requests (the user cancelled). */
+  signal?: AbortSignal;
 }
+
+/**
+ * The whole matrix (every request it takes) must arrive within this delay; otherwise the app
+ * falls back to straight-line distances rather than waiting for a stalled connection forever.
+ */
+export const ORS_MATRIX_TIMEOUT_MS = 30_000;
 
 export interface MatrixFetchResult {
   data: MatrixData;
@@ -67,67 +76,82 @@ export const fetchMatrix = async (params: MatrixFetchParams): Promise<MatrixFetc
   // and columns are requested.
   const { distances, durations, keys, blocks } = await readCachedMatrix(orsMatrixCache, profile, points);
 
-  for (const block of blocks) {
-    // ORS caps a matrix request at ORS_MAX_MATRIX_ELEMENTS cells (sources x destinations):
-    // larger blocks are split into groups of source rows, each against every destination.
-    const rowsPerRequest = Math.max(1, Math.floor(ORS_MAX_MATRIX_ELEMENTS / block.destinations.length));
-    for (const tile of tileBlock(block, rowsPerRequest, block.destinations.length)) {
-      const { sources, destinations } = tile;
-      const body: Record<string, unknown> = {
-        locations,
-        metrics: ['distance', 'duration'],
-        units: 'm',
-      };
-      if (sources.length < size) body.sources = sources;
-      if (destinations.length < size) body.destinations = destinations;
-
-      const response = await fetch(ORS_BASE_URL + profile, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: apiKey,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        const fallback = buildFallbackMatrix(params);
-        return {
-          data: fallback.data,
-          warnings: fallback.warnings,
-          error: 'OpenRouteService matrix failed (HTTP ' + response.status + '): ' + describeOrsError(response.status, errorText).message,
+  const timeout = timeoutSignal(ORS_MATRIX_TIMEOUT_MS, params.signal);
+  try {
+    for (const block of blocks) {
+      // ORS caps a matrix request at ORS_MAX_MATRIX_ELEMENTS cells (sources x destinations):
+      // larger blocks are split into groups of source rows, each against every destination.
+      const rowsPerRequest = Math.max(1, Math.floor(ORS_MAX_MATRIX_ELEMENTS / block.destinations.length));
+      for (const tile of tileBlock(block, rowsPerRequest, block.destinations.length)) {
+        const { sources, destinations } = tile;
+        const body: Record<string, unknown> = {
+          locations,
+          metrics: ['distance', 'duration'],
+          units: 'm',
         };
-      }
+        if (sources.length < size) body.sources = sources;
+        if (destinations.length < size) body.destinations = destinations;
 
-      const payload = await response.json();
-      const blockDistances = payload && payload.distances;
-      const blockDurations = payload && payload.durations;
-      if (!isValidResponseMatrix(blockDistances) || blockDistances.length !== sources.length) {
-        const fallback = buildFallbackMatrix(params);
-        return {
-          data: fallback.data,
-          warnings: fallback.warnings,
-          error: 'OpenRouteService matrix payload was invalid or incomplete.',
-        };
-      }
-      const hasDurations = isValidResponseMatrix(blockDurations) && blockDurations.length === sources.length;
-      const fresh: [string, PairValue][] = [];
-      sources.forEach((i, row) => {
-        destinations.forEach((j, column) => {
-          if (i === j) return;
-          const distance = blockDistances[row][column];
-          const duration = hasDurations ? blockDurations[row][column] : undefined;
-          // ORS returns null for unroutable pairs.
-          const d = typeof distance === 'number' && Number.isFinite(distance) ? distance : null;
-          const s = typeof duration === 'number' && Number.isFinite(duration) ? duration : null;
-          distances[i][j] = d ?? Infinity;
-          durations[i][j] = s ?? (d === null ? Infinity : undefined);
-          if (d !== null || distance === null) fresh.push([keys[i][j], { d, s }]);
+        const response = await fetch(ORS_BASE_URL + profile, {
+          method: 'POST',
+          signal: timeout.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: apiKey,
+          },
+          body: JSON.stringify(body),
         });
-      });
-      await orsMatrixCache.setMany(fresh);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          const fallback = buildFallbackMatrix(params);
+          return {
+            data: fallback.data,
+            warnings: fallback.warnings,
+            error: 'OpenRouteService matrix failed (HTTP ' + response.status + '): ' + describeOrsError(response.status, errorText).message,
+          };
+        }
+
+        const payload = await response.json();
+        const blockDistances = payload && payload.distances;
+        const blockDurations = payload && payload.durations;
+        if (!isValidResponseMatrix(blockDistances) || blockDistances.length !== sources.length) {
+          const fallback = buildFallbackMatrix(params);
+          return {
+            data: fallback.data,
+            warnings: fallback.warnings,
+            error: 'OpenRouteService matrix payload was invalid or incomplete.',
+          };
+        }
+        const hasDurations = isValidResponseMatrix(blockDurations) && blockDurations.length === sources.length;
+        const fresh: [string, PairValue][] = [];
+        sources.forEach((i, row) => {
+          destinations.forEach((j, column) => {
+            if (i === j) return;
+            const distance = blockDistances[row][column];
+            const duration = hasDurations ? blockDurations[row][column] : undefined;
+            // ORS returns null for unroutable pairs.
+            const d = typeof distance === 'number' && Number.isFinite(distance) ? distance : null;
+            const s = typeof duration === 'number' && Number.isFinite(duration) ? duration : null;
+            distances[i][j] = d ?? Infinity;
+            durations[i][j] = s ?? (d === null ? Infinity : undefined);
+            if (d !== null || distance === null) fresh.push([keys[i][j], { d, s }]);
+          });
+        });
+        await orsMatrixCache.setMany(fresh);
+      }
     }
+  } catch (error) {
+    if (params.signal?.aborted) throw abortError();
+    if (!timeout.timedOut()) throw error;
+    const fallback = buildFallbackMatrix(params);
+    return {
+      data: fallback.data,
+      warnings: fallback.warnings,
+      error: 'OpenRouteService did not answer within ' + ORS_MATRIX_TIMEOUT_MS / 1000 + ' s; straight-line distances used instead.',
+    };
+  } finally {
+    timeout.dispose();
   }
 
   const durationsComplete = durations.every((row) => row.every((value) => value !== undefined));

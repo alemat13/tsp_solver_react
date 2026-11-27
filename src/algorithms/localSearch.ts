@@ -63,9 +63,18 @@ export const improvePath = (input: number[], cost: number[][]): number[] => {
   const reversalDelta = (i: number, k: number) => backward[k] - backward[i] - (forward[k] - forward[i]);
 
   refreshPrefixes();
+  // Deltas come from differences of prefix sums. With large values (unreachable pairs are
+  // priced with a big penalty, and real distances have decimals) their rounding error exceeds
+  // a fixed epsilon, so a move and its inverse could both look "improving" and the descent
+  // would cycle forever. The threshold therefore scales with the magnitude of the sums, and the
+  // number of moves is capped as a last resort.
+  const threshold = Math.max(EPSILON, 1e-9 * (Math.abs(forward[length - 1]) + Math.abs(backward[length - 1])));
+  const maxMoves = 100 * length * length;
+  let moves = 0;
   let improved = true;
-  while (improved) {
+  while (improved && moves < maxMoves) {
     improved = false;
+    moves += 1;
 
     // 2-opt: reverse path[i..k].
     for (let i = 1; i < length - 2 && !improved; i += 1) {
@@ -75,7 +84,7 @@ export const improvePath = (input: number[], cost: number[][]): number[] => {
         const last = path[k];
         const b = path[k + 1];
         const delta = cost[a][last] + cost[first][b] - cost[a][first] - cost[last][b] + reversalDelta(i, k);
-        if (delta < -EPSILON) {
+        if (delta < -threshold) {
           path = path.slice(0, i).concat(path.slice(i, k + 1).reverse(), path.slice(k + 1));
           refreshPrefixes();
           improved = true;
@@ -104,7 +113,7 @@ export const improvePath = (input: number[], cost: number[][]): number[] => {
           const insertReversed = cost[left][last] + cost[first][right] - base + internalReversal;
           const reverse = insertReversed < insertForward;
           const delta = Math.min(insertForward, insertReversed) - removalGain;
-          if (delta < -EPSILON) {
+          if (delta < -threshold) {
             const segment = path.slice(i, e + 1);
             if (reverse) segment.reverse();
             const rest = path.slice(0, i).concat(path.slice(e + 1));

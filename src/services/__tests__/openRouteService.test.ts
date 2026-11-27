@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { fetchMatrix, fetchRouteGeometry } from '../openRouteService';
+import { fetchMatrix, fetchRouteGeometry, ORS_MATRIX_TIMEOUT_MS } from '../openRouteService';
 
 globalThis.fetch = vi.fn();
 const mockFetch = () => globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
@@ -25,6 +25,34 @@ describe('OpenRouteService', () => {
     expect(result.data.distances).toHaveLength(100);
     expect(result.data.distances[99][7]).toBe(99007);
     expect(result.data.durations?.[50][2]).toBe(50002);
+  });
+
+  const hangingFetch = async (_url: string, init: { signal: AbortSignal }) =>
+    new Promise((_, reject) => {
+      if (init.signal.aborted) reject(new DOMException('Aborted', 'AbortError'));
+      init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    });
+
+  it('falls back to straight lines when the matrix request never answers', async () => {
+    vi.useFakeTimers();
+    try {
+      mockFetch().mockImplementation(hangingFetch);
+      const pending = fetchMatrix({ apiKey: 'k', profile: 'driving-car', points: points(4).map((p, i) => ({ ...p, id: 'hang' + i, latitude: 10 + i })) });
+      await vi.advanceTimersByTimeAsync(ORS_MATRIX_TIMEOUT_MS + 10);
+      const result = await pending;
+      expect(result.data.provider).toBe('haversine');
+      expect(result.error).toMatch(/did not answer/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects with an AbortError when the user cancels', async () => {
+    mockFetch().mockImplementation(hangingFetch);
+    const controller = new AbortController();
+    const pending = fetchMatrix({ apiKey: 'k', profile: 'driving-car', points: points(4).map((p, i) => ({ ...p, id: 'cancel' + i, latitude: 20 + i })), signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 
   it('stitches directions for itineraries longer than 50 stops', async () => {

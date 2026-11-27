@@ -11,7 +11,12 @@ interface SolveMessage {
 
 self.onmessage = async (event: MessageEvent<SolveMessage>) => {
   try {
-    const outcome = await solveWithMode(event.data.mode, event.data.request, { loadHighs, ...event.data.options });
+    const outcome = await solveWithMode(event.data.mode, event.data.request, {
+      loadHighs,
+      ...event.data.options,
+      // Lets the page show this route if it has to stop the exact search early.
+      onIncumbent: (incumbent) => self.postMessage({ incumbent }),
+    });
     self.postMessage({ ok: true, outcome });
   } catch (error) {
     self.postMessage({ ok: false, error: error instanceof Error ? error.message : String(error) });

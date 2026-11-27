@@ -39,6 +39,8 @@ interface StoredEntry<T> {
 const DB_NAME = 'tsp-solver-api-cache';
 const STORE = 'entries';
 const DEFAULT_MAX_ENTRIES = 200_000;
+/** Past this delay, a cache that has not finished loading from IndexedDB is used from memory only. */
+const LOAD_TIMEOUT_MS = 5_000;
 
 let dbPromise: Promise<IDBDatabase | undefined> | undefined;
 
@@ -101,7 +103,7 @@ export class ApiCache<T> {
   private load(): Promise<void> {
     if (!this.options.persist) return Promise.resolve();
     if (!this.loaded) {
-      this.loaded = (async () => {
+      const loading = (async () => {
         const db = await openDatabase();
         if (!db) return;
         try {
@@ -126,6 +128,8 @@ export class ApiCache<T> {
           // A broken store only costs us the cache.
         }
       })();
+      // A stuck IndexedDB (seen on some mobile browsers) must never hold up a request.
+      this.loaded = Promise.race([loading, new Promise<void>((resolve) => setTimeout(resolve, LOAD_TIMEOUT_MS))]);
     }
     return this.loaded;
   }

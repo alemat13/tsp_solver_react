@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, Download, ExternalLink, FileCode2, Gauge, Info, Loader2 } from 'lucide-react';
-import { SolveResult, TransitLeg } from '../types';
+import { CoordinatePoint, SolveResult, TransitLeg } from '../types';
 import { TransitSteps } from './TransitSteps';
 import { buildCitymapperLink, buildGoogleMapsLinks, buildGpx, buildKml, downloadTextFile } from '../utils/exportRoute';
 import { downloadHtmlReport } from '../utils/downloadHtmlReport';
@@ -18,13 +18,16 @@ export interface ResultViewProps {
   legs: Leg[];
   notes: string[];
   warnings: string[];
+  /** Stops with no route to most other stops; the user can skip them in one tap. */
+  cutOff?: CoordinatePoint[];
+  onSkipCutOff?: () => void;
   matrixProvider?: string;
   routeCoordinates: [number, number][];
   travelMode: string;
   onFocus: (id: string) => void;
 }
 
-export const ResultView = ({ result, legs, notes, warnings, matrixProvider, routeCoordinates, travelMode, onFocus }: ResultViewProps) => {
+export const ResultView = ({ result, legs, notes, warnings, matrixProvider, routeCoordinates, travelMode, onFocus, cutOff = [], onSkipCutOff }: ResultViewProps) => {
   const optimality = describeOptimality(result);
   const route = result.orderedPoints;
   const isLoop = route.length > 1 && route[0].id === route[route.length - 1].id;
@@ -51,6 +54,19 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
 
   return (
     <div className="result">
+      {cutOff.length > 0 && (
+        <div className="callout callout--warning cutoff" role="alert">
+          <p>
+            <AlertTriangle size={16} /> <strong>{cutOff.length === 1 ? '1 stop has' : cutOff.length + ' stops have'} no route</strong>{' '}
+            to the others with this travel mode: {cutOff.map((point) => point.label).join(', ')}.
+          </p>
+          {onSkipCutOff && (
+            <button type="button" className="button" onClick={onSkipCutOff}>
+              Skip {cutOff.length === 1 ? 'this stop' : 'these stops'} and optimise again
+            </button>
+          )}
+        </div>
+      )}
       <div className="stats">
         <div className="stat">
           <span className="stat__label">Distance</span>

@@ -15,6 +15,8 @@ import { fetchMatrix as fetchORSMatrix, fetchRouteGeometry as fetchORSRouteGeome
 import { fetchMatrix as fetchGoogleMatrix, fetchRouteGeometry as fetchGoogleRouteGeometry } from './services/googleMapsService';
 import { solveInBackground } from './services/solverClient';
 import { describeBruteForceEstimate } from './utils/solverEstimate';
+import { isAbortError } from './utils/async';
+import { findCutOffStops } from './utils/unreachable';
 import { TRAVEL_MODES, travelModeOption } from './ui/travelModes';
 import { CoordinatePoint, MatrixData, SolveResult, TransitLeg } from './types';
 import './App.css';
@@ -26,6 +28,8 @@ interface Solution {
   legs: Leg[];
   provider: string;
   geometry: [number, number][];
+  /** Stops the routing service could not connect to most other stops (e.g. on an island). */
+  cutOff: CoordinatePoint[];
 }
 
 const PROVIDER_LABELS: Record<MatrixData['provider'], string> = {
@@ -65,6 +69,7 @@ export const App = () => {
   const [locateRequest, setLocateRequest] = useState(0);
 
   const [isSolving, setIsSolving] = useState(false);
+  const [solvePhase, setSolvePhase] = useState<'distances' | 'solving'>('distances');
   const [error, setError] = useState<string>();
   const [solution, setSolution] = useState<Solution>();
 
@@ -170,6 +175,16 @@ export const App = () => {
       }),
     }));
 
+  /** Skips the given stops and optimises again without them. */
+  const resolvePending = useRef(false);
+  const skipAndSolve = (ids: string[]) => {
+    updateStops((current) => ({
+      ...current,
+      points: current.points.map((point) => (ids.includes(point.id) ? { ...point, disabled: true } : point)),
+    }));
+    resolvePending.current = true;
+  };
+
   const setAllEnabled = (enabled: boolean) =>
     updateStops((current) => ({
       ...current,
@@ -211,6 +226,10 @@ export const App = () => {
   /** Incremented on every solve, so that a late route geometry never overwrites a newer result. */
   const solveToken = useRef(0);
 
+  /** Aborts the solve in progress (pending requests and the solver worker). */
+  const solveAbort = useRef<AbortController>();
+  const cancelSolve = () => solveAbort.current?.abort();
+
   const solve = async () => {
     const { travelMode, solverMode, objective, googleApiKey, orsApiKey, exactTimeLimitSeconds } = settings;
     const { points, startId, endId } = active;
@@ -225,22 +244,38 @@ export const App = () => {
       preWarnings.push('Brute force: estimated ' + estimate + '.');
     }
 
+    solveAbort.current?.abort();
+    const abort = new AbortController();
+    solveAbort.current = abort;
+    const { signal } = abort;
     setIsSolving(true);
+    setSolvePhase('distances');
     setError(undefined);
     setSolution(undefined);
     try {
       const matrixResult =
         travelMode === 'transit'
-          ? await fetchGoogleMatrix({ apiKey: googleApiKey, profile: travelMode, points })
-          : await fetchORSMatrix({ apiKey: orsApiKey, profile: travelMode, points });
+          ? await fetchGoogleMatrix({ apiKey: googleApiKey, profile: travelMode, points, signal })
+          : await fetchORSMatrix({ apiKey: orsApiKey, profile: travelMode, points, signal });
+      setSolvePhase('solving');
       const { result, notes } = await solveInBackground(
         solverMode,
         { points, matrix: matrixResult.data, startId, endId, objective },
-        { exactTimeLimitMs: exactTimeLimitSeconds * 1000 }
+        { exactTimeLimitMs: exactTimeLimitSeconds * 1000, signal }
       );
 
       const warnings = [...preWarnings, ...matrixResult.warnings, ...result.warnings];
       if (matrixResult.error) warnings.push(matrixResult.error);
+
+      // Only a real routing service can say that a stop is unreachable.
+      const cutOff = matrixResult.data.provider === 'haversine' ? [] : findCutOffStops(points, matrixResult.data.distances);
+      if (cutOff.length > 0) {
+        const names = cutOff.map((point) => '“' + point.label + '”').join(', ');
+        warnings.unshift(
+          'No ' + travelModeOption(travelMode).label.toLowerCase() + ' route to or from ' + names +
+            ': ' + (cutOff.length > 1 ? 'these stops are' : 'this stop is') + ' joined by straight lines and the total distance is unknown.'
+        );
+      }
 
       const legs = computeLegs(result.orderedPoints, matrixResult.data, points);
       const provider = matrixResult.data.provider;
@@ -251,6 +286,7 @@ export const App = () => {
         legs,
         provider: PROVIDER_LABELS[provider],
         geometry: result.orderedPoints.map((point) => [point.latitude, point.longitude]),
+        cutOff,
       };
       // Show the order right away with straight lines; the road geometry follows when it arrives.
       const token = ++solveToken.current;
@@ -295,11 +331,22 @@ export const App = () => {
         }
       }
     } catch (solveError) {
+      if (isAbortError(solveError)) return; // cancelled by the user, or replaced by a newer solve
       setError(solveError instanceof Error ? solveError.message : 'Unexpected error while solving the route.');
     } finally {
-      setIsSolving(false);
+      if (solveAbort.current === abort) {
+        solveAbort.current = undefined;
+        setIsSolving(false);
+      }
     }
   };
+
+  // Solve again once the stops skipped from the result screen are in the state.
+  useEffect(() => {
+    if (!resolvePending.current) return;
+    resolvePending.current = false;
+    void solve();
+  });
 
   // A link with `solve=1` optimises the route as soon as the page opens (once).
   const autoSolvePending = useRef(autoSolve);
@@ -372,12 +419,18 @@ export const App = () => {
           {mode.provider === 'google' ? 'Transit needs a Google key' : 'No API key: straight-line distances'} · <u>Add a key</u>
         </button>
       )}
+      {isSolving ? (
+        <div className="solve-bar__busy">
+          <button type="button" className="button button--primary button--large button--block" disabled>
+            <Loader2 size={20} className="spin" /> {solvePhase === 'distances' ? 'Getting distances…' : 'Solving…'}
+          </button>
+          <button type="button" className="button button--large" onClick={cancelSolve}>
+            Cancel
+          </button>
+        </div>
+      ) : (
       <button type="button" className="button button--primary button--large button--block" onClick={solve} disabled={!canSolve}>
-        {isSolving ? (
-          <>
-            <Loader2 size={20} className="spin" /> Solving…
-          </>
-        ) : (
+        {(
           <>
             <Sparkles size={20} />{' '}
             {activeCount >= 2
@@ -388,6 +441,7 @@ export const App = () => {
           </>
         )}
       </button>
+      )}
     </div>
   );
 
@@ -581,6 +635,8 @@ export const App = () => {
             routeCoordinates={solution.geometry}
             travelMode={settings.travelMode}
             onFocus={focusOn}
+            cutOff={solution.cutOff}
+            onSkipCutOff={() => skipAndSolve(solution.cutOff.map((point) => point.id))}
           />
         )}
       </Sheet>

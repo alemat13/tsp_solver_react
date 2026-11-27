@@ -1690,3 +1690,30 @@ code {
   flex: none;
   color: var(--text-2);
 }
+
+/* While solving: the progress label and a Cancel button side by side. */
+.solve-bar__busy {
+  display: flex;
+  gap: 8px;
+}
+
+.solve-bar__busy > .button--block {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Stops with no route: shown above the totals, with a one-tap fix. */
+.cutoff {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.cutoff p {
+  margin: 0;
+}
+
+.cutoff p svg {
+  vertical-align: -3px;
+}
