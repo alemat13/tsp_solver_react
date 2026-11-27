@@ -4,7 +4,8 @@ import { CoordinatePoint, SolveResult, TransitLeg } from '../types';
 import { TransitSteps } from './TransitSteps';
 import { buildCitymapperLink, buildGoogleMapsLinks, buildGpx, buildKml, downloadTextFile } from '../utils/exportRoute';
 import { downloadHtmlReport } from '../utils/downloadHtmlReport';
-import { describeOptimality, formatDistance, formatDuration, STRATEGY_LABELS } from '../ui/format';
+import { EstimatedTotal, estimateTotals } from '../utils/estimateTotals';
+import { describeOptimality, formatDistance, formatDuration, formatLegValue, STRATEGY_LABELS } from '../ui/format';
 
 export interface Leg {
   distance?: number;
@@ -52,6 +53,8 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
     else downloadTextFile('route.kml', buildKml(data), 'application/vnd.google-earth.kml+xml');
   };
 
+  const totals = estimateTotals(route, legs);
+
   return (
     <div className="result">
       {cutOff.length > 0 && (
@@ -68,17 +71,9 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
         </div>
       )}
       <div className="stats">
-        <div className="stat">
-          <span className="stat__label">Distance</span>
-          <span className="stat__value">{formatDistance(result.totalDistance)}</span>
-        </div>
-        {!!result.totalDuration && (
-          <div className="stat">
-            <span className="stat__label">Duration</span>
-            <span className="stat__value">{formatDuration(result.totalDuration)}</span>
-          </div>
-        )}
-        <div className="stat">
+        <TotalStat label="Distance" total={totals.distance} format={formatDistance} />
+        {totals.duration && <TotalStat label="Duration" total={totals.duration} format={formatDuration} />}
+        <div className="stat stat--compact">
           <span className="stat__label">Stops</span>
           <span className="stat__value">{isLoop ? route.length - 1 : route.length}</span>
         </div>
@@ -146,8 +141,8 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
               </button>
               {!isLast && leg && (
                 <div className="timeline__leg">
-                  {formatDistance(leg.distance)}
-                  {leg.duration ? ' · ' + formatDuration(leg.duration) : ''}
+                  {formatLegValue(leg.distance, formatDistance, totals.perLeg[index]?.distance)}
+                  {legs.some((other) => other.duration) ? ' · ' + formatLegValue(leg.duration, formatDuration, totals.perLeg[index]?.duration) : ''}
                   {' · '}
                   <a className="timeline__link" href={buildCitymapperLink(route[index + 1], point)} target="_blank" rel="noreferrer">
                     Citymapper
@@ -176,3 +171,17 @@ export const ResultView = ({ result, legs, notes, warnings, matrixProvider, rout
     </div>
   );
 };
+
+/** A total, prefixed with ~ and broken down when part of it is estimated. */
+const TotalStat = ({ label, total, format }: { label: string; total: EstimatedTotal; format: (value: number) => string }) => (
+  <div className="stat">
+    <span className="stat__label">{label}</span>
+    <span className="stat__value">{(total.estimated > 0 ? '~' : '') + format(total.total)}</span>
+    {total.estimated > 0 && (
+      <span className="stat__detail">
+        {total.routed > 0 && <span>{format(total.routed)} routed</span>}{' '}
+        <span>{(total.routed > 0 ? '+ ' : '') + format(total.estimated)} estimated</span>
+      </span>
+    )}
+  </div>
+);

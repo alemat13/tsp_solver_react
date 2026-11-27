@@ -36,3 +36,9 @@ export const STRATEGY_LABELS: Record<SolveResult['strategy'], string> = {
   heuristic: 'Heuristic',
   genetic: 'Genetic',
 };
+
+/** A leg's value, or its estimate prefixed with ~ when the routing service gave none. */
+export const formatLegValue = (value: number | undefined, format: (value: number) => string, estimated: number | undefined) => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return format(value);
+  return estimated && estimated > 0 ? '~' + format(estimated) + ' est.' : format(value ?? 0);
+};

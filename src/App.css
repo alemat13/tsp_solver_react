@@ -893,18 +893,22 @@ svg.search__trailing {
 }
 
 .stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-  grid-auto-flow: column;
+  display: flex;
   gap: 8px;
 }
 
 .stat {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   padding: 12px;
   border-radius: 12px;
   background: var(--surface-2);
+}
+
+.stat--compact {
+  flex: 0 0 auto;
 }
 
 .stat__label {
@@ -1716,4 +1720,16 @@ code {
 
 .cutoff p svg {
   vertical-align: -3px;
+}
+
+/* "10 h 30 min routed + 1 h 10 min estimated" under an approximate total. */
+.stat__detail {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.stat__detail span {
+  white-space: nowrap;
 }
